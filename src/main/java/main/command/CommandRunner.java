@@ -8,6 +8,8 @@ import main.model.enums.Priority;
 import main.model.enums.Role;
 import main.model.enums.Status;
 import main.model.enums.TicketType;
+import main.model.enums.ExpertiseArea;
+import main.model.enums.Seniority;
 import main.model.ticket.Ticket;
 import main.model.user.Developer;
 import main.model.user.Manager;
@@ -144,7 +146,8 @@ public class CommandRunner {
                     break;
             }
         } catch (Exception e) {
-            if ("reportTicket".equals(command)) {
+            if ("reportTicket".equals(command) || "createMilestone".equals(command) || "assignTicket".equals(command)
+                    || "addComment".equals(command) || "undoAddComment".equals(command)) {
                 result.put("error", e.getMessage());
             } else {
                 ObjectNode errorNode = result.putObject("output");
@@ -404,7 +407,9 @@ public class CommandRunner {
             throw new RuntimeException("Cannot create milestone in current state.");
         }
         if (!(user instanceof Manager)) {
-            throw new RuntimeException("Only Managers can create milestones.");
+            throw new RuntimeException(
+                    "The user does not have permission to execute this command: required role MANAGER; user role "
+                            + user.getRole() + ".");
         }
 
         String name = (String) params.get("name");
@@ -425,8 +430,10 @@ public class CommandRunner {
         }
 
         for (Integer tid : ticketIds) {
-            if (findMilestoneForTicket(system, tid) != null) {
-                throw new RuntimeException("Ticket " + tid + " already in a milestone");
+            Milestone existingM = findMilestoneForTicket(system, tid);
+            if (existingM != null) {
+                throw new RuntimeException(
+                        "Tickets " + tid + " already assigned to milestone " + existingM.getName() + ".");
             }
         }
 
@@ -458,17 +465,103 @@ public class CommandRunner {
             throw new RuntimeException("Ticket not in any milestone");
 
         if (!m.getAssignedDevs().contains(user.getUsername()))
-            throw new RuntimeException("Developer not assigned to milestone");
+            throw new RuntimeException(
+                    "Developer " + user.getUsername() + " is not assigned to milestone " + m.getName() + ".");
 
         if (isMilestoneBlocked(system, m))
-            throw new RuntimeException("Milestone belongs to is blocked");
+            throw new RuntimeException(
+                    "Cannot assign ticket " + ticketId + " from blocked milestone " + m.getName() + ".");
 
         Developer dev = (Developer) user;
-        if (!dev.canHandle(ticket))
-            throw new RuntimeException("Developer cannot handle this ticket due to seniority/expertise");
+
+        // Seniority Check
+        boolean seniorityOk = false;
+        Seniority s = dev.getSeniority();
+
+        // Allowed seniorities logic
+        List<String> allowedSeniorities = new ArrayList<>();
+        // Logic derived from dev.canHandle loop or specification
+        // JUNIOR: handles (LOW|MEDIUM) AND (BUG|UI_FEEDBACK)
+        // MID: handles NOT CRITICAL. (Implies LOW, MEDIUM, HIGH). All Types.
+        // SENIOR: handles ALL.
+
+        // For a given ticket, who can handle it?
+        // SENIOR is always allowed.
+        allowedSeniorities.add("SENIOR");
+
+        // MID allowed if NOT CRITICAL
+        if (ticket.getPriority() != Priority.CRITICAL) {
+            allowedSeniorities.add("MID");
+        }
+
+        // JUNIOR allowed if (LOW|MEDIUM) AND (BUG|UI)
+        if ((ticket.getPriority() == Priority.LOW || ticket.getPriority() == Priority.MEDIUM) &&
+                (ticket.getType() == TicketType.BUG || ticket.getType() == TicketType.UI_FEEDBACK)) {
+            allowedSeniorities.add("JUNIOR");
+        }
+
+        Collections.sort(allowedSeniorities); // Alphabetical: JUNIOR, MID, SENIOR or MID, SENIOR etc
+
+        if (allowedSeniorities.contains(s.toString())) {
+            seniorityOk = true;
+        }
+
+        if (!seniorityOk) {
+            String req = String.join(", ", allowedSeniorities);
+            throw new RuntimeException("Developer " + dev.getUsername() + " cannot assign ticket " + ticketId +
+                    " due to seniority level. Required: " + req + "; Current: " + s + ".");
+        }
+
+        // Expertise Check
+        ExpertiseArea tArea = ticket.getExpertiseArea();
+        if (tArea != null) {
+            boolean expertiseOk = false;
+            ExpertiseArea dArea = dev.getExpertiseArea();
+            List<String> allowedExpertise = new ArrayList<>();
+
+            // Check all expertise areas to see which ones permit this ticket
+            // FRONTEND dev: can do FRONTEND, DESIGN
+            // BACKEND dev: can do BACKEND, DB
+            // FULLSTACK dev: can do ALL
+            // DEVOPS dev: can do DEVOPS
+            // DESIGN dev: can do DESIGN, FRONTEND
+            // DB dev: can do DB
+
+            // We need to list which Developer Expertises allow handling this TICKET AREA.
+
+            // FULLSTACK is always allowed? Yes.
+            allowedExpertise.add("FULLSTACK");
+
+            if (tArea == ExpertiseArea.FRONTEND) {
+                allowedExpertise.add("FRONTEND");
+                allowedExpertise.add("DESIGN");
+            } else if (tArea == ExpertiseArea.BACKEND) {
+                allowedExpertise.add("BACKEND");
+            } else if (tArea == ExpertiseArea.DB) {
+                allowedExpertise.add("DB");
+                allowedExpertise.add("BACKEND");
+            } else if (tArea == ExpertiseArea.DESIGN) {
+                allowedExpertise.add("DESIGN");
+                allowedExpertise.add("FRONTEND");
+            } else if (tArea == ExpertiseArea.DEVOPS) {
+                allowedExpertise.add("DEVOPS");
+            }
+
+            Collections.sort(allowedExpertise);
+
+            if (allowedExpertise.contains(dArea.toString())) {
+                expertiseOk = true;
+            }
+
+            if (!expertiseOk) {
+                String req = String.join(", ", allowedExpertise);
+                throw new RuntimeException("Developer " + dev.getUsername() + " cannot assign ticket " + ticketId +
+                        " due to expertise area. Required: " + req + "; Current: " + dArea + ".");
+            }
+        }
 
         if (ticket.getStatus() != Status.OPEN)
-            throw new RuntimeException("Ticket not OPEN");
+            throw new RuntimeException("Only OPEN tickets can be assigned.");
 
         ticket.setAssignedTo(dev.getUsername());
         ticket.setStatus(Status.IN_PROGRESS);
@@ -577,11 +670,7 @@ public class CommandRunner {
 
         // sort: Priority (CRITICAL>HIGH>MEDIUM>LOW), then createdAt, then ID
         assigned.sort((t1, t2) -> {
-            int p = t2.getPriority().compareTo(t1.getPriority()); // Enum order might be LOW, MEDIUM..., so check Enum
-                                                                  // definition.
-            // Priority enum usually declared LOW, MEDIUM, HIGH, CRITICAL. So default
-            // compare is LOW < CRITICAL.
-            // We want CRITICAL > LOW. So t2.compareTo(t1).
+            int p = t2.getPriority().compareTo(t1.getPriority());
             if (p != 0)
                 return p;
             int c = t1.getCreatedAt().compareTo(t2.getCreatedAt());
@@ -596,15 +685,20 @@ public class CommandRunner {
             n.put("id", t.getId());
             n.put("type", t.getType().toString());
             n.put("title", t.getTitle());
-            n.put("priority", t.getPriority().toString());
+            n.put("businessPriority", t.getPriority().toString());
             n.put("status", t.getStatus().toString());
-            n.put("milestone", findMilestoneNameForTicket(system, t.getId()));
-        }
-    }
+            n.put("assignedAt", t.getAssignedAt() != null ? t.getAssignedAt().toString() : "");
+            n.put("createdAt", t.getCreatedAt() != null ? t.getCreatedAt().toString() : "");
+            n.put("reportedBy", t.getReportedBy());
 
-    private static String findMilestoneNameForTicket(BugTrackerSystem system, int id) {
-        Milestone m = findMilestoneForTicket(system, id);
-        return m != null ? m.getName() : "";
+            ArrayNode commentsNode = n.putArray("comments");
+            for (Map<String, String> comment : t.getComments()) {
+                ObjectNode cNode = commentsNode.addObject();
+                cNode.put("author", comment.get("author"));
+                cNode.put("content", comment.get("content"));
+                cNode.put("createdAt", comment.get("createdAt"));
+            }
+        }
     }
 
     private static void handleViewMilestones(BugTrackerSystem system, User user, ObjectNode result) {
@@ -656,34 +750,29 @@ public class CommandRunner {
 
             boolean allClosed = (total > 0 && closed == total);
 
-            n.put("assignedDevs", m.getAssignedDevs().size()); // Wait, ref has LIST of strings
-            // Ref: "assignedDevs" : [ "mateo_frontend", ... ]
-            // My previous code put size. I must put Array.
-            // But wait, "Exemplu Output" in prompt for `viewMilestones`:
-            // "assignedDevs" : [ "dev1", "dev2" ]
-
-            // Let's re-read output example in Ref_17 line 11.
-            // "assignedDevs" : [ "mateo_frontend", ... ]
-            // My code line 433 put size.
-            // I should overwrite it.
-
             ArrayNode devArr = n.putArray("assignedDevs");
-            // Sort devs?
+            // Do NOT sort devs, preserve insertion order (or creation order)
             List<String> devs = new ArrayList<>(m.getAssignedDevs());
-            Collections.sort(devs);
             for (String d : devs)
                 devArr.add(d);
 
             n.put("createdBy", m.getCreator());
+            n.put("createdAt", m.getCreationDate().toString());
+            n.put("dueDate", m.getDueDate().toString());
+
+            ArrayNode blockingForArr = n.putArray("blockingFor");
+            List<String> blocking = new ArrayList<>(m.getBlockingFor());
+            Collections.sort(blocking);
+            for (String b : blocking)
+                blockingForArr.add(b);
+
             n.put("status", allClosed ? "INACTIVE" : "ACTIVE");
             n.put("isBlocked", isMilestoneBlocked(system, m));
 
             double pct = total == 0 ? 100.0 : ((double) closed / total) * 100.0;
-            n.put("completionPercentage", pct); // Ref uses double 0.0, logic says Double with 2 decimals?
-                                                // "completionPercentage" : 0.0 in ref.
+            n.put("completionPercentage", pct);
 
             // daysUntilDue / overdueBy
-            // Similar logic as before
             LocalDate refDate = now;
             if (allClosed && total > 0) {
                 LocalDate maxSolved = null;
@@ -699,11 +788,13 @@ public class CommandRunner {
             }
 
             long dDiff = ChronoUnit.DAYS.between(refDate, m.getDueDate()) + 1;
+            if (dDiff < 0)
+                dDiff = 0;
             n.put("daysUntilDue", dDiff);
 
             long overdue = 0;
             if (refDate.isAfter(m.getDueDate())) {
-                overdue = ChronoUnit.DAYS.between(m.getDueDate(), refDate);
+                overdue = ChronoUnit.DAYS.between(m.getDueDate(), refDate) + 1;
             }
             n.put("overdueBy", overdue);
 
@@ -856,32 +947,35 @@ public class CommandRunner {
         if (params.containsKey("params"))
             p = (Map) params.get("params");
 
-        if (!p.containsKey("ticketId"))
-            return; // or error
-        int tid = (Integer) p.get("ticketId");
-        String content = (String) p.get("content");
+        Integer tid = getTicketId(p);
+        if (tid == null)
+            return;
+
+        String content = (String) p.get("comment");
 
         Ticket t = system.getTicket(tid);
         if (t == null)
-            return; // Silent ignore according to prompt? "comanda este ignorată"
+            return;
 
         // Anon check
         if (t.getType() == TicketType.BUG && (t.getReportedBy() == null || t.getReportedBy().isEmpty())) {
-            throw new RuntimeException("Cannot comment on anonymous bug");
+            throw new RuntimeException("Comments are not allowed on anonymous tickets.");
         }
 
         if (content == null || content.length() < 10) {
-            throw new RuntimeException("Comment too short");
+            throw new RuntimeException("Comment must be at least 10 characters long.");
         }
 
         if (user.getRole() == Role.REPORTER) {
             if (t.getStatus() == Status.CLOSED)
                 throw new RuntimeException("Reporter cannot comment on CLOSED ticket");
             if (!user.getUsername().equals(t.getReportedBy()))
-                throw new RuntimeException("Reporter can only comment on own tickets");
+                throw new RuntimeException(
+                        "Reporter " + user.getUsername() + " cannot comment on ticket " + t.getId() + ".");
         } else if (user.getRole() == Role.DEVELOPER) {
             if (!user.getUsername().equals(t.getAssignedTo()))
-                throw new RuntimeException("Developer can only comment on assigned tickets");
+                throw new RuntimeException(
+                        "Ticket " + t.getId() + " is not assigned to the developer " + user.getUsername() + ".");
         }
 
         Map<String, String> comment = new HashMap<>();
@@ -896,14 +990,16 @@ public class CommandRunner {
         if (p.containsKey("params"))
             params = (Map) p.get("params");
 
-        int tid = (Integer) params.get("ticketId");
+        Integer tid = getTicketId(params);
+        if (tid == null)
+            return;
+
         Ticket t = system.getTicket(tid);
         if (t == null)
             return;
 
         if (t.getType() == TicketType.BUG && (t.getReportedBy() == null || t.getReportedBy().isEmpty())) {
-            throw new RuntimeException("Cannot comment on anonymous bug"); // Prompt says error for deletion too? "Dacă
-                                                                           // se încearcă ștergerea ... eroare"
+            throw new RuntimeException("Comments are not allowed on anonymous tickets.");
         }
 
         List<Map<String, String>> c = t.getComments();
@@ -914,11 +1010,20 @@ public class CommandRunner {
         if (last.get("author").equals(user.getUsername())) {
             t.removeLastComment();
         }
-        // else ignore? Prompt says "dacă utilizatorul nu are comentarii ... comanda
-        // este ignorată".
-        // "unde utilizatorul nu are comentarii" implies generic ownership?
-        // But logic suggests "undo the add", so usually undoes YOUR last action.
-        // If last comment is not yours, you can't undo it?
+    }
+
+    private static Integer getTicketId(Map<String, Object> params) {
+        if (params.containsKey("ticketId")) {
+            Object val = params.get("ticketId");
+            if (val instanceof Integer)
+                return (Integer) val;
+        }
+        if (params.containsKey("ticketID")) {
+            Object val = params.get("ticketID");
+            if (val instanceof Integer)
+                return (Integer) val;
+        }
+        return null;
     }
 
     private static void handleStartTestingPhase(BugTrackerSystem system, User user) {
