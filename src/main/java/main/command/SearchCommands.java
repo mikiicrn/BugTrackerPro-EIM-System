@@ -66,7 +66,7 @@ public class SearchCommands {
                     double score = 0.0;
                     if (p.get("performanceScoreAbove") instanceof Number)
                         score = ((Number) p.get("performanceScoreAbove")).doubleValue();
-                    if (d.getPerformanceScore() <= score) {
+                    if (d.getPerformanceScore() < score) {
                         it.remove();
                         continue;
                     }
@@ -190,21 +190,23 @@ public class SearchCommands {
                 n.put("solvedAt", t.getSolvedAt() != null ? t.getSolvedAt().toString() : "");
                 n.put("reportedBy", t.getReportedBy());
 
-                if (p.containsKey("keywords")) {
-                    List<String> kws = (List<String>) p.get("keywords");
-                    List<String> matches = new ArrayList<>();
-                    String title = t.getTitle().toLowerCase();
-                    String desc = t.getDescription() != null ? t.getDescription().toLowerCase() : "";
-                    for (String kw : kws) {
-                        String k = kw.toLowerCase();
-                        if (title.contains(k) || desc.contains(k)) {
-                            matches.add(kw);
-                        }
-                    }
-                    Collections.sort(matches);
+                if (user.getRole() == Role.MANAGER || p.containsKey("keywords")) {
                     ArrayNode mw = n.putArray("matchingWords");
-                    for (String m : matches)
-                        mw.add(m);
+                    if (p.containsKey("keywords")) {
+                        List<String> kws = (List<String>) p.get("keywords");
+                        List<String> matches = new ArrayList<>();
+                        String title = t.getTitle().toLowerCase();
+                        String desc = t.getDescription() != null ? t.getDescription().toLowerCase() : "";
+                        for (String kw : kws) {
+                            String k = kw.toLowerCase();
+                            if (title.contains(k) || desc.contains(k)) {
+                                matches.add(kw);
+                            }
+                        }
+                        Collections.sort(matches);
+                        for (String m : matches)
+                            mw.add(m);
+                    }
                 }
             }
         }

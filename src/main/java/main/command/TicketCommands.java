@@ -42,6 +42,7 @@ public class TicketCommands {
         int id = system.getNextTicketId();
         Ticket ticket = TicketFactory.createTicket(id, ticketData);
         ticket.setCreatedAt(date);
+        ticket.setStatus(Status.OPEN);
 
         if (isAnonymous) {
             ticket.setPriority(Priority.LOW);
