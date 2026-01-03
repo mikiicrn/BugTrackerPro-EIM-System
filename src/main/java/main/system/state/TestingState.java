@@ -1,8 +1,5 @@
 package main.system.state;
 
-// Concrete State for the State Pattern
-// When we are testing, we can't add new features (milestones) or assign normal dev work
-// We focus on finding bugs
 public class TestingState implements WorkflowState {
     @Override
     public boolean canReportTicket() {

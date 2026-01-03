@@ -3,8 +3,7 @@ package main.model.user;
 import main.model.enums.Role;
 
 public abstract class User {
-    // Base class for everyone using the system
-    // Stores common stuff like username and email
+
     private String username;
     private String email;
     private Role role;

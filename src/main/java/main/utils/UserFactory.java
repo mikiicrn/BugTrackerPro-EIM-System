@@ -7,10 +7,6 @@ import java.util.Map;
 
 public class UserFactory {
 
-    // Factory Pattern! I use this to create different types of users (Reporter,
-    // Developer, Manager)
-    // without cluttering the main code with "new Reporter(...)" everywhere
-
     @SuppressWarnings("unchecked")
     public static User createUser(Map<String, Object> params) {
         String roleStr = (String) params.get("role");
@@ -18,8 +14,6 @@ public class UserFactory {
         String username = (String) params.get("username");
         String email = (String) params.get("email");
 
-        // Based on the role, I decide which class to instantiate
-        // It's like a vending machine for User objects
         switch (role) {
             case REPORTER:
                 return new Reporter(username, email);

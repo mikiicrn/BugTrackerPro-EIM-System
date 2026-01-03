@@ -11,25 +11,18 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+// singleton class for the system, i store all the data here users tickets and milestones
 public class BugTrackerSystem {
-    // Singleton Pattern! This ensures we only have ONE system instance running at
-    // all times
-    // It holds all the data: users, tickets, milestones
-    // Also acts as the Context for the State Pattern
 
     private static BugTrackerSystem instance;
 
     private Map<String, User> users;
-    private List<Ticket> tickets; // List to maintain order effectively, or Map for lookup. Commands use ID.
+    private List<Ticket> tickets;
     private int ticketCounter;
     private Map<String, Milestone> milestones;
     private WorkflowState currentState;
 
-    // We can store output here to accumulate results if needed,
-    // or pass the output list to commands.
-    // Given App.java structure, commands should probably return output or add to a
-    // provided list.
-
+    // private constructor so i ensure only one instance exists
     private BugTrackerSystem() {
         users = new HashMap<>();
         tickets = new ArrayList<>();
@@ -37,7 +30,7 @@ public class BugTrackerSystem {
         milestones = new HashMap<>();
     }
 
-    // Getting the single instance. If it doesn't exist, I create it
+    // get the single instance
     public static synchronized BugTrackerSystem getInstance() {
         if (instance == null) {
             instance = new BugTrackerSystem();
@@ -85,8 +78,6 @@ public class BugTrackerSystem {
         return milestones;
     }
 
-    // State Pattern method. Allows changing the behavior of the system
-    // by switching between DevelopmentState and TestingState
     public void setState(WorkflowState state) {
         this.currentState = state;
     }
@@ -144,6 +135,7 @@ public class BugTrackerSystem {
         this.active = active;
     }
 
+    // clean slate for the system, useful between tests
     public void reset() {
         users.clear();
         tickets.clear();

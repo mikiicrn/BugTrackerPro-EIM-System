@@ -11,9 +11,7 @@ import java.util.List;
 import java.util.Map;
 
 public abstract class Ticket {
-    // Represents a task or issue in the system
-    // Could be a Bug, a Feature Request, or just Feedback
-    // It has a lifecycle (OPEN -> IN_PROGRESS -> RESOLVED -> CLOSED)
+
     private int id;
     private TicketType type;
     private String title;
@@ -24,13 +22,11 @@ public abstract class Ticket {
     private String reportedBy;
     private String assignedTo;
 
-    // New fields
     private LocalDate createdAt;
     private LocalDate solvedAt;
     private LocalDate assignedAt;
     private List<Map<String, String>> comments = new ArrayList<>();
 
-    // Status Change Inner Class
     public static class StatusChange {
         private Status oldStatus;
         private Status newStatus;
@@ -159,17 +155,10 @@ public abstract class Ticket {
         this.assignedTo = assignedTo;
     }
 
-    // History Tracking
     public static class HistoryEntry {
-        private String type; // ASSIGNED, DE-ASSIGNED, STATUS_CHANGED, ADDED_TO_MILESTONE, REMOVED_FROM_DEV
+        private String type;
         private String details;
         private LocalDate date;
-        // Depending on requirements, might need more fields, but for now simple string
-        // rep or structured map.
-        // The output requirement for history seems detailed.
-        // Example output shows: "type": "ASSIGNED", "date": "...", "username": "..."
-        // etc.
-        // So we should store structured data.
         private Map<String, String> data;
 
         public HistoryEntry(String type, LocalDate date, Map<String, String> data) {

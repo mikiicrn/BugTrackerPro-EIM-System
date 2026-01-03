@@ -6,11 +6,6 @@ import java.util.Map;
 
 public class TicketFactory {
 
-    // Another Factory Pattern here
-    // This one helps me create Bug, FeatureRequest, or UIFeedback tickets
-    // Keeps the creation logic internally here so the rest of the app doesn't worry
-    // about it
-
     public static Ticket createTicket(int id, Map<String, Object> params) {
         String typeStr = (String) params.get("type");
         if (typeStr == null)
@@ -25,8 +20,7 @@ public class TicketFactory {
 
         String title = (String) params.get("title");
 
-        Object priorityObj = params.get("businessPriority"); // Check key name Match input
-        // NOTE: Input JSON creates "businessPriority".
+        Object priorityObj = params.get("businessPriority");
         if (priorityObj == null)
             throw new IllegalArgumentException("Priority missing (businessPriority)");
 
@@ -37,7 +31,7 @@ public class TicketFactory {
             throw new IllegalArgumentException("Invalid priority: " + priorityObj);
         }
 
-        Status status = Status.OPEN; // Default status
+        Status status = Status.OPEN;
         if (params.containsKey("status")) {
             status = Status.valueOf((String) params.get("status"));
         }
@@ -50,8 +44,6 @@ public class TicketFactory {
         String description = (String) params.get("description");
         String reportedBy = (String) params.get("reportedBy");
 
-        // Checking the ticket type and creating the specific object needed
-        // Simple and clean
         switch (type) {
             case BUG:
                 String expectedBehavior = (String) params.get("expectedBehavior");

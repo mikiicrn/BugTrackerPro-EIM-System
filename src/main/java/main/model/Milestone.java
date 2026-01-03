@@ -5,14 +5,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class Milestone {
-    // A collection of tickets that need to be done by a specific deadline
-    // Like a "Sprint" or a "Release"
     private String name;
-    private List<String> blockingFor; // Names of milestones this one blocks
+    private List<String> blockingFor;
     private LocalDate dueDate;
     private List<Integer> tickets;
     private List<String> assignedDevs;
-    private String creator; // Manager username
+    private String creator;
     private LocalDate creationDate;
     private int priorityIncrementsApplied;
     private boolean notifiedBeforeDeadline;
