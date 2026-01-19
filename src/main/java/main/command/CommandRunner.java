@@ -16,26 +16,40 @@ import main.system.state.TestingState;
 
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
-import java.util.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 // i use this to run the commands from local inputs
-public class CommandRunner {
+public final class CommandRunner {
 
-    private static final ObjectMapper mapper = new ObjectMapper();
+    private CommandRunner() {
+    }
 
-    // main entry for each command, i check if the user exists or is anon here
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    /**
+     * Executes a command
+     *
+     * @param command   The name of the command to execute
+     * @param username  The username of the user executing the command
+     * @param timestamp The timestamp of the command execution
+     * @param params    The parameters for the command
+     */
     @SuppressWarnings("unchecked")
-    public static void execute(String command, String username, String timestamp, Map<String, Object> params) {
+    public static void execute(final String command, final String username,
+            final String timestamp, final Map<String, Object> params) {
         BugTrackerSystem system = BugTrackerSystem.getInstance();
-        if (!system.isActive())
+        if (!system.isActive()) {
             return;
+        }
 
         LocalDate date = LocalDate.parse(timestamp);
 
         updateTime(system, date);
 
         User user = system.getUser(username);
-        ObjectNode result = mapper.createObjectNode();
+        ObjectNode result = MAPPER.createObjectNode();
         result.put("command", command);
         result.put("timestamp", timestamp);
 
@@ -101,8 +115,9 @@ public class CommandRunner {
                     handleStartTestingPhase(system, user);
                     break;
                 case "lostInvestors":
-                    if (user.getRole() != Role.MANAGER)
+                    if (user.getRole() != Role.MANAGER) {
                         throw new RuntimeException("Only Managers can declare lost investors.");
+                    }
                     system.setActive(false);
                     break;
                 case "addComment":
@@ -138,9 +153,10 @@ public class CommandRunner {
                     break;
             }
         } catch (Exception e) {
-            if ("reportTicket".equals(command) || "createMilestone".equals(command) || "assignTicket".equals(command)
-                    || "addComment".equals(command) || "undoAddComment".equals(command)
-                    || "changeStatus".equals(command) || "undoChangeStatus".equals(command)) {
+            String c = command;
+            if ("reportTicket".equals(c) || "createMilestone".equals(c) || "assignTicket".equals(c)
+                    || "addComment".equals(c) || "undoAddComment".equals(c)
+                    || "changeStatus".equals(c) || "undoChangeStatus".equals(c)) {
                 result.put("error", e.getMessage());
             } else {
                 ObjectNode errorNode = result.putObject("output");
@@ -149,20 +165,43 @@ public class CommandRunner {
             }
         }
 
-        if (result.has("output") || result.has("tickets") || result.has("milestones") || result.has("notifications")
-                || result.has("history") || result.has("assignedTickets") || result.has("error") || result.has("report")
-                || result.has("riskReport") || result.has("efficiencyReport") || result.has("customerImpact")
-                || result.has("stability") || result.has("developers") || result.has("ticketHistory")
+        if (result.has("output") || result.has("tickets")
+                || result.has("milestones") || result.has("notifications")
+                || result.has("history") || result.has("assignedTickets")
+                || result.has("error") || result.has("report")
+                || result.has("riskReport") || result.has("efficiencyReport")
+                || result.has("customerImpact")
+                || result.has("stability") || result.has("developers")
+                || result.has("ticketHistory")
                 || result.has("results")) {
             system.addOutput(result);
         }
     }
 
-    public static void logHistory(Ticket ticket, String type, LocalDate date, Map<String, String> data) {
+    /**
+     * Logs an action in the ticket's history
+     *
+     * @param ticket The ticket to log the history for
+     * @param type   The type of action
+     * @param date   The date of the action
+     * @param data   Additional data for the log
+     */
+    public static void logHistory(final Ticket ticket, final String type,
+            final LocalDate date,
+            final Map<String, String> data) {
         ticket.addHistory(type, date, data);
     }
 
-    public static void notifyUsers(BugTrackerSystem system, List<String> usernames, String message) {
+    /**
+     * Notifies a list of users
+     *
+     * @param system    The bug tracker system
+     * @param usernames The list of usernames to notify
+     * @param message   The notification message
+     */
+    public static void notifyUsers(final BugTrackerSystem system,
+            final List<String> usernames,
+            final String message) {
         for (String u : usernames) {
             User user = system.getUser(u);
             if (user != null) {
@@ -171,8 +210,14 @@ public class CommandRunner {
         }
     }
 
-    // updating the system time and checking for transitions or deadlines
-    private static void updateTime(BugTrackerSystem system, LocalDate newDate) {
+    /**
+     * Updates the system time and checks for testing phase transitions or milestone
+     * deadlines
+     *
+     * @param system  The bug tracker system
+     * @param newDate The new date to update to
+     */
+    private static void updateTime(final BugTrackerSystem system, final LocalDate newDate) {
         LocalDate currentDate = system.getCurrentDate();
         if (currentDate == null) {
             system.setCurrentDate(newDate);
@@ -183,12 +228,14 @@ public class CommandRunner {
             return;
         }
 
-        if (newDate.isEqual(currentDate))
+        if (newDate.isEqual(currentDate)) {
             return;
+        }
 
-        if (system.getState() instanceof TestingState) {
+        if ("TESTING".equals(system.getState().getName())) {
             long daysInPhase = ChronoUnit.DAYS.between(system.getPhaseStartDate(), newDate);
-            if (daysInPhase >= 12) {
+            final int testingDays = 12;
+            if (daysInPhase >= testingDays) {
                 system.setState(new DevelopmentState());
             }
         }
@@ -198,43 +245,10 @@ public class CommandRunner {
         for (Milestone m : system.getMilestones().values()) {
             boolean isBlocked = isMilestoneBlocked(system, m);
 
-            if (m.getDueDate() != null && newDate.equals(m.getDueDate().minusDays(1))) {
-                notifyUsers(system, m.getAssignedDevs(),
-                        "Milestone " + m.getName() + " is due tomorrow. All unresolved tickets are now CRITICAL.");
-
-                for (int tId : m.getTickets()) {
-                    Ticket t = system.getTicket(tId);
-                    if (t != null && t.getStatus() != Status.CLOSED) {
-                        t.setPriority(Priority.CRITICAL);
-
-                        if (t.getAssignedTo() != null) {
-                            User assignedUser = system.getUser(t.getAssignedTo());
-                            if (assignedUser instanceof Developer) {
-                                Developer dev = (Developer) assignedUser;
-                                if (!dev.canHandle(t)) {
-                                    String devName = t.getAssignedTo();
-                                    t.setAssignedTo(null);
-                                    t.setStatus(Status.OPEN);
-
-                                    Map<String, String> data = new HashMap<>();
-                                    data.put("username", devName);
-                                    data.put("reason", "seniority_mismatch");
-                                    logHistory(t, "DE-ASSIGNED", newDate, data);
-
-                                    Map<String, String> sData = new HashMap<>();
-                                    sData.put("oldStatus", "IN_PROGRESS");
-                                    sData.put("newStatus", "OPEN");
-                                    logHistory(t, "STATUS_CHANGED", newDate, sData);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
             long daysSinceCreation = ChronoUnit.DAYS.between(m.getCreationDate(), newDate);
 
-            int requiredIncrements = (int) (daysSinceCreation / 3);
+            final int daysForIncrement = 3;
+            int requiredIncrements = (int) (daysSinceCreation / daysForIncrement);
 
             if (requiredIncrements > m.getPriorityIncrementsApplied()) {
                 if (!isBlocked) {
@@ -249,7 +263,7 @@ public class CommandRunner {
                             }
                             if (t.getAssignedTo() != null) {
                                 User assignedUser = system.getUser(t.getAssignedTo());
-                                if (assignedUser instanceof Developer) {
+                                if (assignedUser.getRole() == Role.DEVELOPER) {
                                     Developer dev = (Developer) assignedUser;
                                     if (!dev.canHandle(t)) {
                                         String devName = t.getAssignedTo();
@@ -276,9 +290,16 @@ public class CommandRunner {
         }
     }
 
-    private static void handleStartTestingPhase(BugTrackerSystem system, User user) {
-        if (user.getRole() != Role.MANAGER)
+    /**
+     * Handles the start of the testing phase by a manager
+     *
+     * @param system The bug tracker system
+     * @param user   The user making the request (must be a MANAGER)
+     */
+    private static void handleStartTestingPhase(final BugTrackerSystem system, final User user) {
+        if (user.getRole() != Role.MANAGER) {
             throw new RuntimeException("Only managers.");
+        }
 
         for (Milestone m : system.getMilestones().values()) {
             for (int tid : m.getTickets()) {
@@ -293,15 +314,32 @@ public class CommandRunner {
         system.setPhaseStartDate(system.getCurrentDate());
     }
 
-    public static Milestone findMilestoneForTicket(BugTrackerSystem system, int ticketId) {
+    /**
+     * Finds the milestone for a given ticket ID
+     *
+     * @param system   The bug tracker system
+     * @param ticketId The ID of the ticket
+     * @return The milestone containing the ticket, or null if not found
+     */
+    public static Milestone findMilestoneForTicket(final BugTrackerSystem system,
+            final int ticketId) {
         for (Milestone m : system.getMilestones().values()) {
-            if (m.getTickets().contains(ticketId))
+            if (m.getTickets().contains(ticketId)) {
                 return m;
+            }
         }
         return null;
     }
 
-    public static boolean isMilestoneBlocked(BugTrackerSystem system, Milestone target) {
+    /**
+     * Checks if a milestone is blocked by another milestone
+     *
+     * @param system The bug tracker system
+     * @param target The milestone to check
+     * @return True if the milestone is blocked, false otherwise
+     */
+    public static boolean isMilestoneBlocked(final BugTrackerSystem system,
+            final Milestone target) {
         for (Milestone m : system.getMilestones().values()) {
             if (m.getBlockingFor() != null && m.getBlockingFor().contains(target.getName())) {
                 boolean allClosed = true;
@@ -312,14 +350,23 @@ public class CommandRunner {
                         break;
                     }
                 }
-                if (!allClosed)
+                if (!allClosed) {
                     return true;
+                }
             }
         }
         return false;
     }
 
-    private static void handleViewNotifications(BugTrackerSystem system, User user, ObjectNode result) {
+    /**
+     * Views the notifications for a user
+     *
+     * @param system The bug tracker system
+     * @param user   The user to view notifications for
+     * @param result The output object node
+     */
+    private static void handleViewNotifications(final BugTrackerSystem system, final User user,
+            final ObjectNode result) {
         ArrayNode arr = result.putArray("notifications");
         List<String> notifs = user.getNotifications();
         for (String n : notifs) {

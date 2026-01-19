@@ -3,9 +3,6 @@ package main.command;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import main.model.ticket.Ticket;
-import main.model.ticket.Bug;
-import main.model.ticket.FeatureRequest;
-import main.model.ticket.UIFeedback;
 import main.model.user.Developer;
 import main.model.user.Manager;
 import main.model.user.User;
@@ -14,148 +11,175 @@ import main.model.enums.Priority;
 import main.model.enums.TicketType;
 import main.model.enums.Status;
 import main.system.BugTrackerSystem;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 // creating all the reports for managers
-public class ReportCommands {
+public final class ReportCommands {
 
-    public static void handleGeneratePerformanceReport(BugTrackerSystem system, User user, Map<String, Object> params,
-            ObjectNode result) {
-        if (user.getRole() != Role.MANAGER)
+    private static final double MAJOR_RISK_THRESHOLD = 50.0;
+    private static final double MODERATE_RISK_THRESHOLD = 15.0;
+    private static final double STATS_DIVISOR = 3.0;
+    private static final double JUNIOR_BONUS = 5.0;
+    private static final double JUNIOR_WEIGHT = 0.5;
+    private static final double MID_BONUS = 15.0;
+    private static final double MID_CLOSED_WEIGHT = 0.5;
+    private static final double MID_PRIO_WEIGHT = 0.7;
+    private static final double MID_TIME_WEIGHT = 0.3;
+    private static final double SENIOR_BONUS = 30.0;
+    private static final double SENIOR_CLOSED_WEIGHT = 0.5;
+    private static final double SENIOR_PRIO_WEIGHT = 1.0;
+    private static final double SENIOR_TIME_WEIGHT = 0.5;
+    private static final double MAX_PERCENTAGE = 100.0;
+    private static final double FACTOR = 100.0;
+
+    private ReportCommands() {
+    }
+
+    /**
+     * Generates the performance report for developers
+     *
+     * @param system The bug tracker system
+     * @param user   The user generating the report (Manager)
+     * @param params The parameters for the report (unused)
+     * @param result The result object to populate
+     */
+    public static void handleGeneratePerformanceReport(final BugTrackerSystem system,
+            final User user,
+            final Map<String, Object> params,
+            final ObjectNode result) {
+        if (user.getRole() != Role.MANAGER) {
             throw new RuntimeException("Only managers.");
+        }
         Manager m = (Manager) user;
         ArrayNode rep = result.putArray("report");
         List<String> subs = new ArrayList<>(m.getSubordinates());
         Collections.sort(subs);
         for (String s : subs) {
             User u = system.getUser(s);
-            if (u instanceof Developer) {
+            if (u.getRole() == Role.DEVELOPER) {
                 Developer d = (Developer) u;
                 ObjectNode r = rep.addObject();
                 r.put("username", d.getUsername());
 
                 List<Ticket> closed = new ArrayList<>();
+
+                String cmdTimestamp = (String) params.get("timestamp");
+                if (cmdTimestamp == null) {
+                    cmdTimestamp = system.getCurrentDate().toString();
+                }
+
+                java.time.LocalDate cmdDate = java.time.LocalDate.parse(cmdTimestamp);
+                java.time.YearMonth currentMonth = java.time.YearMonth.from(cmdDate);
+                java.time.YearMonth previousMonth = currentMonth.minusMonths(1);
+
                 for (Ticket t : system.getAllTickets()) {
-                    // finding closed tickets assigned to this dev
-                    if (d.getUsername().equals(t.getAssignedTo()) && t.getStatus() == Status.CLOSED) {
-                        closed.add(t);
+                    if (d.getUsername().equals(t.getAssignedTo())
+                            && t.getStatus() == Status.CLOSED) {
+                        java.time.LocalDate solvedAt = t.getSolvedAt();
+                        if (solvedAt != null) {
+                            java.time.YearMonth solvedMonth = java.time.YearMonth.from(solvedAt);
+                            if (solvedMonth.equals(previousMonth)) {
+                                closed.add(t);
+                            }
+                        }
                     }
                 }
 
                 r.put("closedTickets", closed.size());
 
                 double totalDays = 0;
-                double totalWeightedScore = 0;
+                int bugCount = 0;
+                int featureCount = 0;
+                int uiCount = 0;
+                int highPrioCount = 0;
 
                 for (Ticket t : closed) {
-                    java.time.LocalDate resolutionDate = t.getSolvedAt();
-                    // Try to find the first time it was resolved from history to explain the "1.67"
-                    // vs "2.0" discrepancy
-                    // in tests where a ticket is Resolved then Closed later.
-                    java.time.LocalDate firstResolved = null;
-                    for (Ticket.HistoryEntry h : t.getHistory()) {
-                        if ("STATUS_CHANGED".equals(h.getType())) {
-                            String newStat = h.getData().get("newStatus");
-                            if ("RESOLVED".equals(newStat) || "CLOSED".equals(newStat)) {
-                                firstResolved = h.getDate();
-                                break; // found earliest
-                            }
-                        }
+                    if (t.getPriority() == Priority.HIGH
+                            || t.getPriority() == Priority.CRITICAL) {
+                        highPrioCount++;
                     }
-                    if (firstResolved != null) {
-                        resolutionDate = firstResolved;
-                    }
-
-                    long daysRes = java.time.temporal.ChronoUnit.DAYS.between(t.getAssignedAt(), resolutionDate) + 1;
-                    totalDays += daysRes;
-
-                    // Score calc logic similar to risk report
-                    double score = 0;
                     if (t.getType() == TicketType.BUG) {
-                        Bug b = (Bug) t;
-                        int p = b.getPriority().ordinal() + 1;
-                        int sev = b.getSeverity().ordinal() + 1;
-                        int freq = b.getFrequency().ordinal() + 1;
-                        long age = java.time.temporal.ChronoUnit.DAYS.between(b.getCreatedAt(), resolutionDate);
-
-                        double raw = ((p + sev) * freq) + age;
-                        score = raw * 1.06887;
+                        bugCount++;
                     } else if (t.getType() == TicketType.FEATURE_REQUEST) {
-                        FeatureRequest fr = (FeatureRequest) t;
-                        int bv = 0;
-                        switch (fr.getBusinessValue()) {
-                            case S:
-                                bv = 1;
-                                break;
-                            case M:
-                                bv = 3;
-                                break;
-                            case L:
-                                bv = 5;
-                                break;
-                            case XL:
-                                bv = 7;
-                                break;
-                        }
-
-                        int p = fr.getPriority().ordinal() + 1;
-                        int dem = fr.getCustomerDemand().ordinal() + 1;
-
-                        double raw = bv * (p + dem);
-                        score = raw * 1.125;
+                        featureCount++;
                     } else if (t.getType() == TicketType.UI_FEEDBACK) {
-                        UIFeedback ui = (UIFeedback) t;
-                        int bv = 0;
-                        switch (ui.getBusinessValue()) {
-                            case S:
-                                bv = 1;
-                                break;
-                            case M:
-                                bv = 3;
-                                break;
-                            case L:
-                                bv = 5;
-                                break;
-                            case XL:
-                                bv = 7;
-                                break;
-                        }
-                        score = ui.getUsabilityScore() * bv;
+                        uiCount++;
                     }
-                    totalWeightedScore += score;
+
+                    java.time.LocalDate resolutionDate = t.getSolvedAt();
+                    if (resolutionDate == null) {
+                        continue;
+                    }
+
+                    long daysRes = java.time.temporal.ChronoUnit.DAYS
+                            .between(t.getAssignedAt(), resolutionDate) + 1;
+                    if (daysRes < 1) {
+                        daysRes = 1;
+                    }
+
+                    totalDays += daysRes;
                 }
 
-                double avgRes = closed.isEmpty() ? 0.0 : truncate(totalDays / closed.size());
-                if (Math.abs(avgRes - 1.66) < 0.05)
-                    avgRes = 1.67;
+                double avgRes;
+                if (closed.isEmpty()) {
+                    avgRes = 0.0;
+                } else {
+                    avgRes = truncate(totalDays / closed.size());
+                }
                 r.put("averageResolutionTime", avgRes);
 
-                double avgScore = closed.isEmpty() ? 0.0 : (totalWeightedScore / closed.size());
-                double factor = 0.5;
-                if (d.getSeniority() == main.model.enums.Seniority.SENIOR) {
-                    factor = 1.412;
+                double perfScore = 0.0;
+                if (!closed.isEmpty()) {
+                    if (d.getSeniority() == main.model.enums.Seniority.JUNIOR) {
+                        double meanCount = (bugCount + featureCount + uiCount) / STATS_DIVISOR;
+                        double variance = (Math.pow(bugCount - meanCount, 2)
+                                + Math.pow(featureCount - meanCount, 2)
+                                + Math.pow(uiCount - meanCount, 2)) / STATS_DIVISOR;
+                        double stdDev = Math.sqrt(variance);
+                        double diversity;
+                        if (meanCount == 0) {
+                            diversity = 0.0;
+                        } else {
+                            diversity = stdDev / meanCount;
+                        }
+
+                        perfScore = Math.max(0, JUNIOR_WEIGHT * closed.size() - diversity)
+                                + JUNIOR_BONUS;
+                    } else if (d.getSeniority() == main.model.enums.Seniority.MID) {
+                        perfScore = Math.max(0, MID_CLOSED_WEIGHT * closed.size()
+                                + MID_PRIO_WEIGHT * highPrioCount
+                                - MID_TIME_WEIGHT * avgRes) + MID_BONUS;
+                    } else if (d.getSeniority() == main.model.enums.Seniority.SENIOR) {
+                        perfScore = Math.max(0, SENIOR_CLOSED_WEIGHT * closed.size()
+                                + SENIOR_PRIO_WEIGHT * highPrioCount
+                                - SENIOR_TIME_WEIGHT * avgRes) + SENIOR_BONUS;
+                    }
                 }
 
-                double perfScore = avgScore * factor;
-                perfScore = closed.isEmpty() ? 0.0 : truncate(perfScore);
-
-                // fixing values for test compatibility
-                if (Math.abs(perfScore - 38.43) < 5.0)
-                    perfScore = 38.43;
-                if (Math.abs(perfScore - 5.68) < 2.0)
-                    perfScore = 5.68;
-                if (Math.abs(perfScore - 17.5) < 2.0)
-                    perfScore = 17.5;
-
+                perfScore = truncate(perfScore);
                 r.put("performanceScore", perfScore);
                 r.put("seniority", d.getSeniority().toString());
             }
         }
     }
 
-    public static void handleGenerateTicketRiskReport(BugTrackerSystem system, User user, ObjectNode result) {
-        if (user.getRole() != Role.MANAGER)
+    /**
+     * Generates a ticket risk report for managers
+     *
+     * @param system The bug tracker system
+     * @param user   The user generating the report (must be MANAGER)
+     * @param result The result object to populate
+     */
+    public static void handleGenerateTicketRiskReport(final BugTrackerSystem system,
+            final User user,
+            final ObjectNode result) {
+        if (user.getRole() != Role.MANAGER) {
             throw new RuntimeException("Only managers.");
+        }
 
         ObjectNode report = result.putObject("report");
         List<Ticket> allTickets = system.getAllTickets();
@@ -171,150 +195,75 @@ public class ReportCommands {
 
         ObjectNode byType = report.putObject("ticketsByType");
         Map<TicketType, Integer> typeCounts = new HashMap<>();
-        for (TicketType t : TicketType.values())
+        for (TicketType t : TicketType.values()) {
             typeCounts.put(t, 0);
-        for (Ticket t : tickets)
+        }
+        for (Ticket t : tickets) {
             typeCounts.put(t.getType(), typeCounts.get(t.getType()) + 1);
-        for (TicketType t : TicketType.values())
+        }
+        for (TicketType t : TicketType.values()) {
             byType.put(t.toString(), typeCounts.get(t));
+        }
 
         ObjectNode byPriority = report.putObject("ticketsByPriority");
         Map<Priority, Integer> prioCounts = new HashMap<>();
-        for (Priority p : Priority.values())
+        for (Priority p : Priority.values()) {
             prioCounts.put(p, 0);
-        for (Ticket p : tickets)
+        }
+        for (Ticket p : tickets) {
             prioCounts.put(p.getPriority(), prioCounts.get(p.getPriority()) + 1);
-        for (Priority p : Priority.values())
+        }
+        for (Priority p : Priority.values()) {
             byPriority.put(p.toString(), prioCounts.get(p));
+        }
 
         ObjectNode riskMap = report.putObject("riskByType");
-
-        // Test 18 Detection: Check for specific ticket title
-        boolean isTest18 = false;
-        for (Ticket t : allTickets) {
-            String title = t.getTitle();
-            if (title != null && title.equals("Login button not working")) {
-                isTest18 = true;
-                break;
-            }
-        }
 
         for (TicketType t : TicketType.values()) {
             List<Ticket> typeTickets = new ArrayList<>();
             for (Ticket tick : tickets) {
-                if (tick.getType() == t)
+                if (tick.getType() == t) {
                     typeTickets.add(tick);
+                }
             }
 
-            double totalScore = 0.0;
-            if (!typeTickets.isEmpty()) {
-                for (Ticket tick : typeTickets) {
-                    double s = 0;
-                    if (tick.getType() == TicketType.BUG) {
-                        Bug b = (Bug) tick;
-                        int p = b.getPriority().ordinal() + 1;
-                        int sev = b.getSeverity().ordinal() + 1;
-                        int freq = b.getFrequency().ordinal() + 1;
-                        long days = java.time.temporal.ChronoUnit.DAYS.between(b.getCreatedAt(),
-                                system.getCurrentDate());
-                        s = ((p + sev) * freq) + days;
-                    } else if (tick.getType() == TicketType.FEATURE_REQUEST) {
-                        FeatureRequest fr = (FeatureRequest) tick;
-                        int bv = 0;
-                        switch (fr.getBusinessValue()) {
-                            case S:
-                                bv = 1;
-                                break;
-                            case M:
-                                bv = 3;
-                                break;
-                            case L:
-                                bv = 5;
-                                break;
-                            case XL:
-                                bv = 7;
-                                break;
-                        }
-                        int p = fr.getPriority().ordinal() + 1;
-                        int d = fr.getCustomerDemand().ordinal() + 1;
-                        s = bv * (p + d);
-                    } else if (tick.getType() == TicketType.UI_FEEDBACK) {
-                        UIFeedback ui = (UIFeedback) tick;
-                        int bv = 0;
-                        switch (ui.getBusinessValue()) {
-                            case S:
-                                bv = 1;
-                                break;
-                            case M:
-                                bv = 3;
-                                break;
-                            case L:
-                                bv = 5;
-                                break;
-                            case XL:
-                                bv = 7;
-                                break;
-                        }
-                        s = ui.getUsabilityScore() * bv;
-                    }
-                    totalScore += s;
-                }
-                totalScore /= typeTickets.size();
+            List<Double> scores = new ArrayList<>();
+            for (Ticket tick : typeTickets) {
+                scores.add(tick.calculateRisk());
             }
+
+            double totalScore = calculateAverage(scores);
 
             String level = "MINOR";
-            if (totalScore > 50)
+            if (totalScore > MAJOR_RISK_THRESHOLD) {
                 level = "MAJOR";
-            else if (totalScore >= 15)
+            } else if (totalScore >= MODERATE_RISK_THRESHOLD) {
                 level = "MODERATE";
-
-            // Test 18 Overrides
-            if (isTest18) {
-                if (t == TicketType.BUG || t == TicketType.FEATURE_REQUEST) {
-                    level = "SIGNIFICANT";
-                }
-                if (t == TicketType.UI_FEEDBACK) {
-                    level = "NEGLIGIBLE";
-                }
             }
 
             riskMap.put(t.toString(), level);
         }
-
-        // Test 18 Overrides for Counts in Risk Report
-        if (isTest18) {
-            report.put("totalTickets", 4);
-            byType.put("BUG", 2);
-            byType.put("FEATURE_REQUEST", 2);
-
-            byPriority.put("HIGH", 2);
-            byPriority.put("MEDIUM", 1);
-            byPriority.put("CRITICAL", 1);
-        }
     }
 
-    public static void handleGenerateResolutionEfficiencyReport(BugTrackerSystem system, User user,
-            ObjectNode result) {
-        if (user.getRole() != Role.MANAGER)
+    /**
+     * Generates a resolution efficiency report for managers
+     *
+     * @param system The bug tracker system
+     * @param user   The user generating the report (must be MANAGER)
+     * @param result The result object to populate
+     */
+    public static void handleGenerateResolutionEfficiencyReport(final BugTrackerSystem system,
+            final User user,
+            final ObjectNode result) {
+        if (user.getRole() != Role.MANAGER) {
             throw new RuntimeException("Only managers.");
-
-        ObjectNode report = result.putObject("report");
-        List<Ticket> allTickets = system.getAllTickets();
-        List<Ticket> tickets = new ArrayList<>();
-
-        for (Ticket t : allTickets) {
-            if (t.getStatus() != main.model.enums.Status.OPEN) {
-                tickets.add(t);
-            }
         }
 
-        // Test 18 Detection: Check for specific ticket title
-        boolean isTest18 = false;
-        for (Ticket t : allTickets) {
-            String title = t.getTitle();
-            if (title != null && title.equals("Login button not working")) {
-                isTest18 = true;
-                break;
+        ObjectNode report = result.putObject("report");
+        List<Ticket> tickets = new ArrayList<>();
+        for (Ticket t : system.getAllTickets()) {
+            if (t.getStatus() != main.model.enums.Status.OPEN) {
+                tickets.add(t);
             }
         }
 
@@ -322,31 +271,26 @@ public class ReportCommands {
 
         ObjectNode byType = report.putObject("ticketsByType");
         Map<TicketType, Integer> typeCounts = new HashMap<>();
-        for (TicketType t : TicketType.values())
+        for (TicketType t : TicketType.values()) {
             typeCounts.put(t, 0);
-        for (Ticket t : tickets)
+        }
+        for (Ticket t : tickets) {
             typeCounts.put(t.getType(), typeCounts.get(t.getType()) + 1);
-        for (TicketType t : TicketType.values())
+        }
+        for (TicketType t : TicketType.values()) {
             byType.put(t.toString(), typeCounts.get(t));
+        }
 
         ObjectNode byPriority = report.putObject("ticketsByPriority");
         Map<Priority, Integer> prioCounts = new HashMap<>();
-        for (Priority p : Priority.values())
+        for (Priority p : Priority.values()) {
             prioCounts.put(p, 0);
-        for (Ticket t : tickets)
+        }
+        for (Ticket t : tickets) {
             prioCounts.put(t.getPriority(), prioCounts.get(t.getPriority()) + 1);
-        for (Priority p : Priority.values())
+        }
+        for (Priority p : Priority.values()) {
             byPriority.put(p.toString(), prioCounts.get(p));
-
-        // Test 18 Overrides for Resolution Efficiency
-        if (isTest18 && tickets.size() < 6) { // Heuristic
-            // Assuming we might have correct counts or needing override
-            // The failure was ticketsByPriority.CRITICAL expected 1 act 0.
-            // If we are here, we might force it.
-            if (tickets.size() == 3) { // Specific state?
-                // Just ensure correctness if needed.
-                // But actual failure was 0 critical.
-            }
         }
 
         ObjectNode efficiencyNode = report.putObject("efficiencyByType");
@@ -354,77 +298,66 @@ public class ReportCommands {
         for (TicketType t : TicketType.values()) {
             List<Ticket> typeTickets = new ArrayList<>();
             for (Ticket tick : tickets) {
-                if (tick.getType() == t)
+                if (tick.getType() == t) {
                     typeTickets.add(tick);
+                }
             }
-            double closed = 0;
+            List<Double> scores = new ArrayList<>();
             for (Ticket tick : typeTickets) {
-                if (tick.getStatus() == Status.CLOSED)
-                    closed++;
-            }
-            double eff = typeTickets.isEmpty() ? 0.0 : (closed / typeTickets.size()) * 100.0;
-            eff = truncate(eff);
+                if (tick.getStatus() == Status.CLOSED
+                        || tick.getStatus() == main.model.enums.Status.RESOLVED) {
+                    java.time.LocalDate assignedAt = tick.getAssignedAt();
+                    java.time.LocalDate solvedAt = tick.getSolvedAt();
+                    if (assignedAt == null || solvedAt == null) {
+                        continue;
+                    }
+                    long daysToResolve = java.time.temporal.ChronoUnit.DAYS
+                            .between(assignedAt, solvedAt) + 1;
+                    if (daysToResolve <= 0) {
+                        daysToResolve = 1;
+                    }
 
-            // Test 15 expectations
-            if (t == TicketType.BUG && typeTickets.size() == 1)
-                eff = 42.86;
-            if (t == TicketType.FEATURE_REQUEST && typeTickets.size() == 2)
-                eff = 45.0;
-            if (t == TicketType.UI_FEEDBACK && typeTickets.size() == 2)
-                eff = 62.5;
-
-            // Test 18 expectations
-            if (isTest18) {
-                if (t == TicketType.BUG)
-                    eff = 22.62;
-                // Add others if needed
+                    double eff = tick.calculateEfficiency(daysToResolve);
+                    scores.add(eff);
+                }
             }
 
-            efficiencyNode.put(t.toString(), eff);
+            double finalEff = calculateAverage(scores);
+            efficiencyNode.put(t.toString(), finalEff);
         }
     }
 
-    public static void handleGenerateCustomerImpactReport(BugTrackerSystem system, User user, ObjectNode result) {
-        if (user.getRole() != Role.MANAGER)
+    /**
+     * Generates a customer impact report for managers
+     *
+     * @param system The bug tracker system
+     * @param user   The user generating the report (must be MANAGER)
+     * @param result The result object to populate
+     */
+    public static void handleGenerateCustomerImpactReport(final BugTrackerSystem system,
+            final User user,
+            final ObjectNode result) {
+        if (user.getRole() != Role.MANAGER) {
             throw new RuntimeException("Only managers.");
+        }
 
         ObjectNode report = result.putObject("report");
-
         List<Ticket> allTickets = system.getAllTickets();
         List<Ticket> tickets = new ArrayList<>();
 
-        // Step 1: Gather potential candidates (non-LOW, non-CLOSED)
-        List<Ticket> candidates = new ArrayList<>();
         for (Ticket t : allTickets) {
             if (t.getPriority() != Priority.LOW && t.getStatus() != Status.CLOSED) {
-                candidates.add(t);
+                tickets.add(t);
             }
-        }
-
-        // Test 18 Detection: Check for specific ticket title
-        boolean isTest18 = false;
-        for (Ticket t : allTickets) {
-            String title = t.getTitle();
-            if (title != null && title.equals("Login button not working")) {
-                isTest18 = true;
-                break;
-            }
-        }
-
-        for (Ticket t : candidates) {
-            // For Test 18, exclude Open Bugs from this report
-            if (isTest18 && t.getType() == TicketType.BUG && t.getStatus() == Status.OPEN) {
-                continue;
-            }
-            tickets.add(t);
         }
 
         report.put("totalTickets", tickets.size());
 
         ObjectNode byType = report.putObject("ticketsByType");
         Map<TicketType, Integer> typeCounts = new HashMap<>();
-        for (TicketType t : TicketType.values())
+        for (TicketType t : TicketType.values()) {
             typeCounts.put(t, 0);
+        }
 
         for (Ticket t : tickets) {
             typeCounts.put(t.getType(), typeCounts.get(t.getType()) + 1);
@@ -435,8 +368,9 @@ public class ReportCommands {
 
         ObjectNode byPriority = report.putObject("ticketsByPriority");
         Map<Priority, Integer> prioCounts = new HashMap<>();
-        for (Priority p : Priority.values())
+        for (Priority p : Priority.values()) {
             prioCounts.put(p, 0);
+        }
 
         for (Ticket t : tickets) {
             prioCounts.put(t.getPriority(), prioCounts.get(t.getPriority()) + 1);
@@ -447,82 +381,44 @@ public class ReportCommands {
 
         ObjectNode impactNode = report.putObject("customerImpactByType");
 
-        double bugScore = 0.0;
-        int bugCount = 0;
-        double featureScore = 0.0;
-        int featureCount = 0;
-        double uiScore = 0.0;
-        int uiCount = 0;
-
-        for (Ticket t : tickets) {
-            if (t.getType() == TicketType.UI_FEEDBACK) {
-                UIFeedback ui = (UIFeedback) t;
-                int bv = 0;
-                switch (ui.getBusinessValue()) {
-                    case S:
-                        bv = 1;
-                        break;
-                    case M:
-                        bv = 3;
-                        break;
-                    case L:
-                        bv = 5;
-                        break;
-                    case XL:
-                        bv = 7;
-                        break;
-                }
-                double score = ui.getUsabilityScore() * bv;
-                uiScore += score;
-                uiCount++;
-            } else if (t.getType() == TicketType.FEATURE_REQUEST) {
-                FeatureRequest fr = (FeatureRequest) t;
-                int bv = 0;
-                switch (fr.getBusinessValue()) {
-                    case S:
-                        bv = 1;
-                        break;
-                    case M:
-                        bv = 3;
-                        break;
-                    case L:
-                        bv = 5;
-                        break;
-                    case XL:
-                        bv = 7;
-                        break;
-                }
-                int p = fr.getPriority().ordinal() + 1;
-                int d = fr.getCustomerDemand().ordinal() + 1;
-
-                double score = bv * (p + d);
-                score = score * 1.125;
-                featureScore += score;
-                featureCount++;
-            } else if (t.getType() == TicketType.BUG) {
-                Bug b = (Bug) t;
-                int p = b.getPriority().ordinal() + 1;
-                int s = b.getSeverity().ordinal() + 1;
-                int f = b.getFrequency().ordinal() + 1;
-                long days = java.time.temporal.ChronoUnit.DAYS.between(b.getCreatedAt(), system.getCurrentDate());
-
-                double raw = ((p + s) * f) + days;
-                double score = raw * 1.06887;
-                bugScore += score;
-                bugCount++;
-            }
+        Map<TicketType, Double> totalScores = new HashMap<>();
+        Map<TicketType, Integer> counts = new HashMap<>();
+        for (TicketType tt : TicketType.values()) {
+            totalScores.put(tt, 0.0);
+            counts.put(tt, 0);
         }
 
-        double finalBugScore = bugCount > 0 ? truncate(bugScore / bugCount) : 0.0;
-        double finalFeatureScore = featureCount > 0 ? truncate(featureScore / featureCount) : 0.0;
-        double finalUiScore = uiCount > 0 ? truncate(uiScore / uiCount) : 0.0;
+        for (Ticket t : tickets) {
+            long days = java.time.temporal.ChronoUnit.DAYS.between(t.getCreatedAt(),
+                    system.getCurrentDate());
+            double raw = t.calculateRawImpact(days);
+            double normalizedScore = calculateImpactFinal(raw, t.getImpactMax());
 
-        // Test 18 Customer Impact Overrides
-        if (isTest18) {
-            if (Math.abs(finalBugScore - 62.5) > 0.1)
-                finalBugScore = 62.5;
-            if (Math.abs(finalFeatureScore - 39.0) > 0.1)
-                finalFeatureScore = 39.0;
+            totalScores.put(t.getType(), totalScores.get(t.getType()) + normalizedScore);
+            counts.put(t.getType(), counts.get(t.getType()) + 1);
+        }
+
+        double finalBugScore;
+        if (counts.get(TicketType.BUG) > 0) {
+            finalBugScore = truncate(totalScores.get(TicketType.BUG) / counts.get(TicketType.BUG));
+        } else {
+            finalBugScore = 0.0;
+        }
+
+        double finalFeatureScore;
+        if (counts.get(TicketType.FEATURE_REQUEST) > 0) {
+            finalFeatureScore = truncate(totalScores.get(TicketType.FEATURE_REQUEST)
+                    / counts.get(TicketType.FEATURE_REQUEST));
+        } else {
+            finalFeatureScore = 0.0;
+        }
+
+        double finalUiScore;
+        if (counts.get(TicketType.UI_FEEDBACK) > 0) {
+            finalUiScore = truncate(totalScores.get(TicketType.UI_FEEDBACK)
+                    / counts.get(TicketType.UI_FEEDBACK));
+        } else {
+            finalUiScore = 0.0;
         }
 
         impactNode.put("BUG", finalBugScore);
@@ -530,30 +426,59 @@ public class ReportCommands {
         impactNode.put("UI_FEEDBACK", finalUiScore);
     }
 
-    private static double truncate(double value) {
-        return Math.floor(value * 100) / 100.0;
+    /**
+     * Calculates the final impact score normalized to a range
+     *
+     * @param baseScore The raw calculated score
+     * @param maxValue  The maximum possible value for normalization
+     * @return The normalized score
+     */
+    public static double calculateImpactFinal(final double baseScore, final double maxValue) {
+        return Math.min(MAX_PERCENTAGE, (baseScore * MAX_PERCENTAGE) / maxValue);
     }
 
-    public static void handleAppStabilityReport(BugTrackerSystem system, User user, ObjectNode result) {
-        if (user.getRole() != Role.MANAGER)
+    /**
+     * Calculates the average impact from a list of scores
+     *
+     * @param scores The list of scores
+     * @return The average score
+     */
+    public static double calculateAverageImpact(final List<Double> scores) {
+        return scores.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+    }
+
+    private static double truncate(final double value) {
+        return Math.round(value * FACTOR) / FACTOR;
+    }
+
+    private static double calculateAverage(final List<Double> scores) {
+        if (scores.isEmpty()) {
+            return 0.0;
+        }
+        double sum = 0;
+        for (Double s : scores) {
+            sum += s;
+        }
+        return truncate(sum / scores.size());
+    }
+
+    /**
+     * Generates an app stability report for managers
+     *
+     * @param system The bug tracker system
+     * @param user   The user generating the report (must be MANAGER)
+     * @param result The result object to populate
+     */
+    public static void handleAppStabilityReport(final BugTrackerSystem system, final User user,
+            final ObjectNode result) {
+        if (user.getRole() != Role.MANAGER) {
             throw new RuntimeException("Only managers.");
-
-        ObjectNode report = result.putObject("report");
-        List<Ticket> allTickets = system.getAllTickets();
-
-        // Test 18 Detection: Check for specific ticket title
-        boolean isTest18 = false;
-        for (Ticket t : allTickets) {
-            String title = t.getTitle();
-            if (title != null && title.equals("Login button not working")) {
-                isTest18 = true;
-                break;
-            }
         }
 
+        ObjectNode report = result.putObject("report");
         List<Ticket> activeTickets = new ArrayList<>();
 
-        for (Ticket t : allTickets) {
+        for (Ticket t : system.getAllTickets()) {
             if (t.getStatus() == Status.OPEN || t.getStatus() == Status.IN_PROGRESS) {
                 activeTickets.add(t);
             }
@@ -563,196 +488,95 @@ public class ReportCommands {
 
         ObjectNode byType = report.putObject("openTicketsByType");
         Map<TicketType, Integer> typeCounts = new HashMap<>();
-        for (TicketType t : TicketType.values())
+        for (TicketType t : TicketType.values()) {
             typeCounts.put(t, 0);
-        for (Ticket t : activeTickets)
+        }
+        for (Ticket t : activeTickets) {
             typeCounts.put(t.getType(), typeCounts.get(t.getType()) + 1);
-        for (TicketType t : TicketType.values())
+        }
+        for (TicketType t : TicketType.values()) {
             byType.put(t.toString(), typeCounts.get(t));
+        }
 
         ObjectNode byPriority = report.putObject("openTicketsByPriority");
         Map<Priority, Integer> prioCounts = new HashMap<>();
-        for (Priority p : Priority.values())
+        for (Priority p : Priority.values()) {
             prioCounts.put(p, 0);
-        for (Ticket t : activeTickets)
+        }
+        for (Ticket t : activeTickets) {
             prioCounts.put(t.getPriority(), prioCounts.get(t.getPriority()) + 1);
-        for (Priority p : Priority.values())
+        }
+        for (Priority p : Priority.values()) {
             byPriority.put(p.toString(), prioCounts.get(p));
+        }
 
         ObjectNode riskMap = report.putObject("riskByType");
+        boolean hasSignificantRisk = false;
+        boolean allRiskNegligible = true;
+
         for (TicketType t : TicketType.values()) {
             List<Ticket> typeTickets = new ArrayList<>();
             for (Ticket tick : activeTickets) {
-                if (tick.getType() == t)
+                if (tick.getType() == t) {
                     typeTickets.add(tick);
-            }
-
-            double totalScore = 0.0;
-            if (!typeTickets.isEmpty()) {
-                for (Ticket tick : typeTickets) {
-                    double s = 0;
-                    if (tick.getType() == TicketType.BUG) {
-                        Bug b = (Bug) tick;
-                        int p = b.getPriority().ordinal() + 1;
-                        int sev = b.getSeverity().ordinal() + 1;
-                        int freq = b.getFrequency().ordinal() + 1;
-                        long days = java.time.temporal.ChronoUnit.DAYS.between(b.getCreatedAt(),
-                                system.getCurrentDate());
-                        // complex scoring formula involves priority severity freq and age
-                        s = ((p + sev) * freq) + days;
-                    } else if (tick.getType() == TicketType.FEATURE_REQUEST) {
-                        FeatureRequest fr = (FeatureRequest) tick;
-                        int bv = 0;
-                        switch (fr.getBusinessValue()) {
-                            case S:
-                                bv = 1;
-                                break;
-                            case M:
-                                bv = 3;
-                                break;
-                            case L:
-                                bv = 5;
-                                break;
-                            case XL:
-                                bv = 7;
-                                break;
-                        }
-                        int p = fr.getPriority().ordinal() + 1;
-                        int d = fr.getCustomerDemand().ordinal() + 1;
-                        // formula based on business value priority and demand
-                        s = bv * (p + d);
-                    } else if (tick.getType() == TicketType.UI_FEEDBACK) {
-                        UIFeedback ui = (UIFeedback) tick;
-                        int bv = 0;
-                        switch (ui.getBusinessValue()) {
-                            case S:
-                                bv = 1;
-                                break;
-                            case M:
-                                bv = 3;
-                                break;
-                            case L:
-                                bv = 5;
-                                break;
-                            case XL:
-                                bv = 7;
-                                break;
-                        }
-                        // score from usability and business value
-                        s = ui.getUsabilityScore() * bv;
-                    }
-                    totalScore += s;
                 }
-                totalScore /= typeTickets.size();
             }
-
-            String level = "MINOR";
-            if (totalScore > 30)
+            List<Double> scores = new ArrayList<>();
+            for (Ticket tick : typeTickets) {
+                scores.add(tick.calculateRisk());
+            }
+            double totalScore = calculateAverage(scores);
+            String level = "NEGLIGIBLE";
+            if (totalScore > MAJOR_RISK_THRESHOLD) {
                 level = "SIGNIFICANT";
-            else if (totalScore >= 15)
+                hasSignificantRisk = true;
+                allRiskNegligible = false;
+            } else if (totalScore >= MODERATE_RISK_THRESHOLD) {
                 level = "MODERATE";
-
-            // Test 18 Overrides
-            if (isTest18) {
-                if (t == TicketType.BUG || t == TicketType.FEATURE_REQUEST)
-                    level = "SIGNIFICANT";
-                else
-                    level = "NEGLIGIBLE";
+                allRiskNegligible = false;
             }
-
             riskMap.put(t.toString(), level);
         }
 
         ObjectNode impactMap = report.putObject("impactByType");
+        boolean allImpactLow = true;
+
         for (TicketType t : TicketType.values()) {
             List<Ticket> typeTickets = new ArrayList<>();
             for (Ticket tick : activeTickets) {
-                if (tick.getType() == t)
+                if (tick.getType() == t) {
                     typeTickets.add(tick);
-            }
-
-            double totalScore = 0.0;
-            if (!typeTickets.isEmpty()) {
-                for (Ticket tick : typeTickets) {
-                    double s = 0;
-                    if (tick.getType() == TicketType.BUG) {
-                        Bug b = (Bug) tick;
-                        int p = b.getPriority().ordinal() + 1;
-                        int sev = b.getSeverity().ordinal() + 1;
-                        int freq = b.getFrequency().ordinal() + 1;
-                        long days = java.time.temporal.ChronoUnit.DAYS.between(b.getCreatedAt(),
-                                system.getCurrentDate());
-                        double raw = ((p + sev) * freq) + days;
-                        // weighted score for bugs
-                        s = raw * 1.06887;
-                    } else if (tick.getType() == TicketType.FEATURE_REQUEST) {
-                        FeatureRequest fr = (FeatureRequest) tick;
-                        int bv = 0;
-                        switch (fr.getBusinessValue()) {
-                            case S:
-                                bv = 1;
-                                break;
-                            case M:
-                                bv = 3;
-                                break;
-                            case L:
-                                bv = 5;
-                                break;
-                            case XL:
-                                bv = 7;
-                                break;
-                        }
-                        int p = fr.getPriority().ordinal() + 1;
-                        int d = fr.getCustomerDemand().ordinal() + 1;
-                        // weighted score for feature requests
-                        s = (bv * (p + d)) * 1.125;
-                    } else if (tick.getType() == TicketType.UI_FEEDBACK) {
-                        UIFeedback ui = (UIFeedback) tick;
-                        int bv = 0;
-                        switch (ui.getBusinessValue()) {
-                            case S:
-                                bv = 1;
-                                break;
-                            case M:
-                                bv = 3;
-                                break;
-                            case L:
-                                bv = 5;
-                                break;
-                            case XL:
-                                bv = 7;
-                                break;
-                        }
-                        // score from usability and business value
-                        s = ui.getUsabilityScore() * bv;
-                    }
-                    totalScore += s;
                 }
-                totalScore /= typeTickets.size();
             }
 
-            double val = totalScore > 0 ? truncate(totalScore) : 0.0;
-            // fixing some values to match the expected test outputs
-            if (t == TicketType.BUG && Math.abs(val - 43.28) < 0.1)
-                val = 61.46;
-            if (t == TicketType.UI_FEEDBACK && Math.abs(val - 28.0) < 0.1)
-                val = 35.5;
+            double sumScore = 0;
+            for (Ticket tick : typeTickets) {
+                long days = java.time.temporal.ChronoUnit.DAYS.between(tick.getCreatedAt(),
+                        system.getCurrentDate());
+                double raw = tick.calculateRawImpact(days);
+                sumScore += (raw * MAX_PERCENTAGE) / tick.getStabilityMax();
+            }
 
-            impactMap.put(t.toString(), val);
-        }
-
-        String stability = "STABLE";
-        boolean hasCritical = false;
-        for (Ticket t : activeTickets) {
-            if (t.getPriority() == Priority.CRITICAL) {
-                hasCritical = true;
-                break;
+            double avgImpact;
+            if (typeTickets.isEmpty()) {
+                avgImpact = 0.0;
+            } else {
+                avgImpact = truncate(sumScore / typeTickets.size());
+            }
+            impactMap.put(t.toString(), avgImpact);
+            if (avgImpact >= MAJOR_RISK_THRESHOLD) {
+                allImpactLow = false;
             }
         }
 
-        if (hasCritical || activeTickets.size() > 10) {
+        String stability;
+        if (activeTickets.isEmpty()) {
+            stability = "STABLE";
+        } else if (allRiskNegligible && allImpactLow) {
+            stability = "STABLE";
+        } else if (hasSignificantRisk) {
             stability = "UNSTABLE";
-        } else if (!activeTickets.isEmpty()) {
+        } else {
             stability = "PARTIALLY_STABLE";
         }
 
@@ -762,4 +586,5 @@ public class ReportCommands {
             system.setActive(false);
         }
     }
+
 }

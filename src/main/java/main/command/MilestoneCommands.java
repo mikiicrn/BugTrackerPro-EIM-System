@@ -13,22 +13,36 @@ import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 // operations related to milestones
-public class MilestoneCommands {
+public final class MilestoneCommands {
+    private MilestoneCommands() {
+    }
 
-    // creating a milestone, i validate the manager and the unique name
+    /**
+     * Creates a milestone, validating the manager and the unique name
+     *
+     * @param system The bug tracker system
+     * @param user   The user creating the milestone (Manager)
+     * @param params The parameters for the milestone
+     * @param date   The date of creation
+     */
     @SuppressWarnings("unchecked")
-    public static void handleCreateMilestone(BugTrackerSystem system, User user, Map<String, Object> params,
-            LocalDate date) {
+    public static void handleCreateMilestone(final BugTrackerSystem system, final User user,
+            final Map<String, Object> params,
+            final LocalDate date) {
         if (!system.getState().canCreateMilestone()) {
             throw new RuntimeException("Cannot create milestone in current state.");
         }
-        if (!(user instanceof Manager)) {
-            throw new RuntimeException(
-                    "The user does not have permission to execute this command: required role MANAGER; user role "
-                            + user.getRole() + ".");
+        if (user.getRole() != Role.MANAGER) {
+            throw new RuntimeException("The user does not have permission to execute this command: "
+                    + "required role MANAGER; user role " + user.getRole() + ".");
         }
 
         String name = (String) params.get("name");
@@ -41,22 +55,24 @@ public class MilestoneCommands {
 
         Manager manager = (Manager) user;
         for (String devName : assignedDevs) {
-            boolean isSub = manager.getSubordinates().stream().anyMatch(s -> s.equals(devName));
+            boolean isSub = manager.getSubordinates().stream()
+                    .anyMatch(s -> s.equals(devName));
             if (!isSub) {
-                throw new RuntimeException(
-                        "Developer " + devName + " is not a subordinate of " + manager.getUsername());
+                throw new RuntimeException("Developer " + devName
+                        + " is not a subordinate of " + manager.getUsername());
             }
         }
 
         for (Integer tid : ticketIds) {
             Milestone existingM = CommandRunner.findMilestoneForTicket(system, tid);
             if (existingM != null) {
-                throw new RuntimeException(
-                        "Tickets " + tid + " already assigned to milestone " + existingM.getName() + ".");
+                throw new RuntimeException("Tickets " + tid
+                        + " already assigned to milestone " + existingM.getName() + ".");
             }
         }
 
-        Milestone m = new Milestone(name, blockingFor, dueDate, ticketIds, assignedDevs, manager.getUsername(), date);
+        Milestone m = new Milestone(name, blockingFor, dueDate, ticketIds,
+                assignedDevs, manager.getUsername(), date);
         system.addMilestone(m);
 
         for (Integer tid : ticketIds) {
@@ -71,17 +87,27 @@ public class MilestoneCommands {
                 "New milestone " + name + " has been created with due date " + dueDate + ".");
     }
 
-    public static void handleViewMilestones(BugTrackerSystem system, User user, ObjectNode result) {
+    /**
+     * Views the milestones available to the user
+     *
+     * @param system The bug tracker system
+     * @param user   The user requesting the milestones
+     * @param result The JSON output object
+     */
+    public static void handleViewMilestones(final BugTrackerSystem system, final User user,
+            final ObjectNode result) {
         List<Milestone> milestones = new ArrayList<>();
         if (user.getRole() == Role.MANAGER) {
             for (Milestone m : system.getMilestones().values()) {
-                if (m.getCreator().equals(user.getUsername()))
+                if (m.getCreator().equals(user.getUsername())) {
                     milestones.add(m);
+                }
             }
         } else if (user.getRole() == Role.DEVELOPER) {
             for (Milestone m : system.getMilestones().values()) {
-                if (m.getAssignedDevs().contains(user.getUsername()))
+                if (m.getAssignedDevs().contains(user.getUsername())) {
                     milestones.add(m);
+                }
             }
         }
 
@@ -120,8 +146,9 @@ public class MilestoneCommands {
 
             ArrayNode devArr = n.putArray("assignedDevs");
             List<String> devs = new ArrayList<>(m.getAssignedDevs());
-            for (String d : devs)
+            for (String d : devs) {
                 devArr.add(d);
+            }
 
             n.put("createdBy", m.getCreator());
             n.put("createdAt", m.getCreationDate().toString());
@@ -130,38 +157,32 @@ public class MilestoneCommands {
             ArrayNode blockingForArr = n.putArray("blockingFor");
             List<String> blocking = new ArrayList<>(m.getBlockingFor());
             Collections.sort(blocking);
-            for (String b : blocking)
+            for (String b : blocking) {
                 blockingForArr.add(b);
+            }
 
             n.put("status", allClosed ? "COMPLETED" : "ACTIVE");
             n.put("isBlocked", CommandRunner.isMilestoneBlocked(system, m));
 
-            double pct = total == 0 ? 100.0 : ((double) closed / total);
-            BigDecimal bd = new BigDecimal(pct).setScale(2, RoundingMode.HALF_UP);
+            final double hundred = 100.0;
+            double pctVal = total == 0 ? hundred : ((double) closed / total);
+            BigDecimal bd = new BigDecimal(pctVal).setScale(2, RoundingMode.HALF_UP);
             n.put("completionPercentage", bd.doubleValue());
 
             LocalDate refDate = now;
-            if (allClosed && total > 0) {
-                LocalDate maxSolved = null;
-                for (int tid : m.getTickets()) {
-                    Ticket t = system.getTicket(tid);
-                    if (t.getSolvedAt() != null) {
-                        if (maxSolved == null || t.getSolvedAt().isAfter(maxSolved))
-                            maxSolved = t.getSolvedAt();
-                    }
-                }
-                if (maxSolved != null)
-                    refDate = maxSolved;
-            }
 
             long dDiff = ChronoUnit.DAYS.between(refDate, m.getDueDate()) + 1;
-            if (dDiff < 0)
+            if (dDiff < 0) {
                 dDiff = 0;
+            }
             n.put("daysUntilDue", dDiff);
 
             long overdue = 0;
             if (refDate.isAfter(m.getDueDate())) {
-                overdue = ChronoUnit.DAYS.between(m.getDueDate(), refDate) + 1;
+                overdue = ChronoUnit.DAYS.between(m.getDueDate(), refDate);
+                if (!allClosed) {
+                    overdue += 1;
+                }
             }
             n.put("overdueBy", overdue);
 
@@ -178,8 +199,9 @@ public class MilestoneCommands {
                         devTickets.add(tid);
                     }
                 }
-                for (int dt : devTickets)
+                for (int dt : devTickets) {
                     dTix.add(dt);
+                }
             }
         }
     }

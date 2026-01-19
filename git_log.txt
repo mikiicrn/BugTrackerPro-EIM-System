@@ -1,0 +1,180 @@
+commit 02f5975f4e982af5752e00a61f7932e223761b9a
+Author: mikiicrn <miki.ciuranu@gmail.com>
+Date:   Sun Jan 4 01:27:29 2026 +0200
+
+    updated some classes, test 17 work
+
+commit 576cb5c0d168c8a5c1161a66707a6de96e2095ac
+Author: mikiicrn <miki.ciuranu@gmail.com>
+Date:   Sun Jan 4 00:11:04 2026 +0200
+
+    tests 1-16 work
+
+commit dfd02206908896e65ca359fc9548b45777ca8ae3
+Author: mikiicrn <miki.ciuranu@gmail.com>
+Date:   Fri Jan 2 21:34:24 2026 +0200
+
+    update: tests 1-7 work
+
+commit 2463f7286b7fcc75574f9d53c1a7f302f9b912c0
+Author: mikiicrn <miki.ciuranu@gmail.com>
+Date:   Thu Jan 1 17:06:38 2026 +0200
+
+    added classes and design patterns
+
+commit 2bc67443ed8b0637490773b5983bd473b6f086b1
+Merge: 53ed5ea 2f1100c
+Author: Florian-Luis Micu <42833908+luis6156@users.noreply.github.com>
+Date:   Wed Dec 10 18:53:13 2025 +0100
+
+    Merge pull request #7 from oop-pub/chronology
+    
+    Chronology
+
+commit 2f1100c8967ee15f3e84464dc7775d3619ad89f2
+Author: gabriel-2802 <gabrielvalentine738@gmail.com>
+Date:   Wed Dec 10 19:09:20 2025 +0200
+
+    19 format + 18 fix
+
+commit 06379ab68cb00f61080c7176b1b14f93f686234c
+Author: gabriel-2802 <gabrielvalentine738@gmail.com>
+Date:   Wed Dec 10 13:08:35 2025 +0200
+
+    overdueBy issue
+
+commit b5bcce42622328f129224dd462acb7efd72a32d4
+Author: gabriel-2802 <gabrielvalentine738@gmail.com>
+Date:   Wed Dec 10 11:25:39 2025 +0200
+
+    chronology fixes for consistency
+
+commit 9e23f7f110171405f07da1b0c420be2625d25072
+Merge: 4a03e0b 53ed5ea
+Author: gabriel-2802 <gabrielvalentine738@gmail.com>
+Date:   Wed Dec 10 11:04:56 2025 +0200
+
+    Merge branch 'main' of https://github.com/oop-pub/schelet-tema2-2025
+
+commit 53ed5eac577d2724f8cd8f2a04258347b7466d25
+Author: Gabriel Cărăuleanu <119312368+gabriel-2802@users.noreply.github.com>
+Date:   Sun Dec 7 12:38:20 2025 +0200
+
+    Fix coding style skel (#6)
+    
+    * cs skel
+    
+    * cs skel full
+    
+    * cs
+
+commit 4a03e0bc74bbe320ec9071b324580b470f37139d
+Author: gabriel-2802 <gabrielvalentine738@gmail.com>
+Date:   Sun Dec 7 12:37:38 2025 +0200
+
+     cs
+
+commit 924b69cb87d63e979aed3c549241031046e5a2ff
+Author: gabriel-2802 <gabrielvalentine738@gmail.com>
+Date:   Sun Dec 7 12:33:17 2025 +0200
+
+    cs skel full
+
+commit fb5b9aa3afb3caa04dfe84b4b6d45d45061c6e86
+Author: gabriel-2802 <gabrielvalentine738@gmail.com>
+Date:   Sun Dec 7 12:29:15 2025 +0200
+
+    cs skel
+
+commit c93d2e7d6ee61f5904a2ebe233ea03dbbc021df5
+Merge: f6b8716 1a33c70
+Author: Florian-Luis Micu <42833908+luis6156@users.noreply.github.com>
+Date:   Tue Dec 2 14:30:28 2025 +0100
+
+    Merge pull request #5 from oop-pub/new_dev
+    
+    added dev
+
+commit 1a33c70c3bed92d0c2efeb81d2a3e751e09512cb
+Author: gabriel-2802 <gabrielvalentine738@gmail.com>
+Date:   Tue Dec 2 15:27:41 2025 +0200
+
+    added dev
+
+commit f6b8716015f89b4924955d20ab8fc41ab145589f
+Merge: e066095 7e02927
+Author: Florian-Luis Micu <42833908+luis6156@users.noreply.github.com>
+Date:   Tue Dec 2 14:24:10 2025 +0100
+
+    Merge pull request #4 from oop-pub/test_15_test_06
+    
+    Test 15,17, 06 input fixes in chronology
+
+commit 7e0292741fd5104ac98570a9e7e570e1c577e66f
+Author: gabriel-2802 <gabrielvalentine738@gmail.com>
+Date:   Tue Dec 2 14:16:25 2025 +0200
+
+    further timeline fixes
+
+commit b690eaf6eb59aa274a9f0f4da5e881ebdbdc472d
+Author: gabriel-2802 <gabrielvalentine738@gmail.com>
+Date:   Tue Dec 2 13:45:05 2025 +0200
+
+    fixed chronology in tests
+
+commit e066095d93c79bd4cc4cc3ae0368cb7404e81950
+Author: Gabriel Cărăuleanu <119312368+gabriel-2802@users.noreply.github.com>
+Date:   Sun Nov 30 15:23:10 2025 +0200
+
+    added jackson-datatype-jsr310 dependency (#3)
+
+commit 709bc8718d4d054a560c45bb03d9a48e2d72e829
+Author: gabriel-2802 <gabrielvalentine738@gmail.com>
+Date:   Sun Nov 30 15:20:12 2025 +0200
+
+    removed random file
+
+commit b1874ccbd8d718f76ad302b0a9d861f2439e2082
+Author: gabriel-2802 <gabrielvalentine738@gmail.com>
+Date:   Sun Nov 30 15:17:17 2025 +0200
+
+    added dev
+
+commit 4c396eb5f198828694a7921a6d449da9fe8e7d9b
+Author: gabriel-2802 <gabrielvalentine738@gmail.com>
+Date:   Sun Nov 30 14:55:43 2025 +0200
+
+    added jackson-datatype-jsr310 dependency
+
+commit 9d5d7ce3750f2851e99ecc848b0a5f345de56809
+Author: Gabriel Cărăuleanu <119312368+gabriel-2802@users.noreply.github.com>
+Date:   Fri Nov 28 13:58:28 2025 +0200
+
+    added comments
+
+commit e91e16deda6507530bd55c7388b0c2bd1044f934
+Author: David Capragiu <63539529+Dievaid@users.noreply.github.com>
+Date:   Fri Nov 21 14:34:01 2025 +0200
+
+    add annotation processing (#2)
+
+commit 2dc572bab94e31f50406286097e3a6b8b998a527
+Merge: bebce68 6a22687
+Author: Gabriel Cărăuleanu <119312368+gabriel-2802@users.noreply.github.com>
+Date:   Fri Nov 21 11:53:33 2025 +0200
+
+    Merge pull request #1 from oop-pub/patch/devmind-compatibility
+    
+    Applied changes for devmind compatibility and fixed issues from previous homework
+
+commit 6a226878901239302567e336d95a8fd29bc2c0df
+Author: David Capragiu <deividcapragiu@gmail.com>
+Date:   Thu Nov 20 12:08:43 2025 +0200
+
+    Applied changes for devmind compatibility and fixed issues from previous homework
+
+commit bebce686e5602580eb7ba9b70ac3f23480616875
+Author: dievaid <david.capragiu@gmail.com>
+Date:   Tue Oct 21 00:46:57 2025 +0300
+
+    initial commit

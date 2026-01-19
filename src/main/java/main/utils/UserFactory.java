@@ -2,32 +2,38 @@ package main.utils;
 
 import main.model.enums.*;
 import main.model.user.*;
-import java.util.List;
+import main.utils.user.*;
 import java.util.Map;
 
 public class UserFactory {
 
-    @SuppressWarnings("unchecked")
+    private static final Map<Role, UserCreator> CREATOR_MAP = new java.util.EnumMap<>(Role.class);
+
+    static {
+        CREATOR_MAP.put(Role.REPORTER, new ReporterCreator());
+        CREATOR_MAP.put(Role.DEVELOPER, new DeveloperCreator());
+        CREATOR_MAP.put(Role.MANAGER, new ManagerCreator());
+    }
+
+    private UserFactory() {
+    }
+
+    /**
+     * Creates a user based on parameters
+     * 
+     * @param params The map of parameters
+     * @return The created User
+     */
     public static User createUser(Map<String, Object> params) {
         String roleStr = (String) params.get("role");
         Role role = Role.valueOf(roleStr);
         String username = (String) params.get("username");
         String email = (String) params.get("email");
 
-        switch (role) {
-            case REPORTER:
-                return new Reporter(username, email);
-            case DEVELOPER:
-                String dHireDate = (String) params.get("hireDate");
-                ExpertiseArea expertiseArea = ExpertiseArea.valueOf((String) params.get("expertiseArea"));
-                Seniority seniority = Seniority.valueOf((String) params.get("seniority"));
-                return new Developer(username, email, dHireDate, expertiseArea, seniority);
-            case MANAGER:
-                String mHireDate = (String) params.get("hireDate");
-                List<String> subordinates = (List<String>) params.get("subordinates");
-                return new Manager(username, email, mHireDate, subordinates);
-            default:
-                throw new IllegalArgumentException("Unknown role: " + role);
+        UserCreator creator = CREATOR_MAP.get(role);
+        if (creator == null) {
+            throw new IllegalArgumentException("Unknown role: " + role);
         }
+        return creator.createUser(username, email, params);
     }
 }

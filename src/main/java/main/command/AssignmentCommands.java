@@ -6,43 +6,64 @@ import main.model.Milestone;
 import main.model.ticket.Ticket;
 import main.model.user.Developer;
 import main.model.user.User;
+import main.model.enums.Role;
 
 import main.model.enums.Status;
 import main.model.enums.Priority;
 import main.model.enums.TicketType;
 import main.model.enums.Seniority;
 import main.model.enums.ExpertiseArea;
+import main.model.state.TicketState;
+import main.model.state.StateFactory;
 import main.system.BugTrackerSystem;
 import java.time.LocalDate;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 // dealing with assignments and status changes here
-public class AssignmentCommands {
+public final class AssignmentCommands {
+    private AssignmentCommands() {
+    }
 
-    // assigning a ticket to a dev, i need to check seniority and expertise matches
-    public static void handleAssignTicket(BugTrackerSystem system, User user, Map<String, Object> params,
-            LocalDate date) {
-        if (!system.getState().canAssignTicket())
+    /**
+     * Assigns a ticket to a developer, checking seniority and expertise matches
+     *
+     * @param system The bug tracker system
+     * @param user   The user performing the assignment
+     * @param params The parameters for the assignment
+     * @param date   The date of the assignment
+     */
+    public static void handleAssignTicket(final BugTrackerSystem system, final User user,
+            final Map<String, Object> params,
+            final LocalDate date) {
+        if (!system.getState().canAssignTicket()) {
             throw new RuntimeException("Assign not allowed.");
-        if (!(user instanceof Developer))
+        }
+        if (user.getRole() != Role.DEVELOPER) {
             throw new RuntimeException("Only developers can assign tickets.");
-
+        }
         int ticketId = (Integer) params.get("ticketID");
         Ticket ticket = system.getTicket(ticketId);
-        if (ticket == null)
+        if (ticket == null) {
             throw new RuntimeException("Ticket not found");
-
+        }
         Milestone m = CommandRunner.findMilestoneForTicket(system, ticketId);
-        if (m == null)
+        if (m == null) {
             throw new RuntimeException("Ticket not in any milestone");
-
-        if (!m.getAssignedDevs().contains(user.getUsername()))
-            throw new RuntimeException(
-                    "Developer " + user.getUsername() + " is not assigned to milestone " + m.getName() + ".");
-
-        if (CommandRunner.isMilestoneBlocked(system, m))
-            throw new RuntimeException(
-                    "Cannot assign ticket " + ticketId + " from blocked milestone " + m.getName() + ".");
+        }
+        if (!m.getAssignedDevs().contains(user.getUsername())) {
+            throw new RuntimeException("Developer " + user.getUsername()
+                    + " is not assigned to milestone " + m.getName() + ".");
+        }
+        if (CommandRunner.isMilestoneBlocked(system, m)) {
+            throw new RuntimeException("Cannot assign ticket " + ticketId
+                    + " from blocked milestone " + m.getName() + ".");
+        }
 
         Developer dev = (Developer) user;
 
@@ -57,8 +78,9 @@ public class AssignmentCommands {
             allowedSeniorities.add("MID");
         }
 
-        if ((ticket.getPriority() == Priority.LOW || ticket.getPriority() == Priority.MEDIUM) &&
-                (ticket.getType() == TicketType.BUG || ticket.getType() == TicketType.UI_FEEDBACK)) {
+        if ((ticket.getPriority() == Priority.LOW || ticket.getPriority() == Priority.MEDIUM)
+                && (ticket.getType() == TicketType.BUG
+                        || ticket.getType() == TicketType.UI_FEEDBACK)) {
             allowedSeniorities.add("JUNIOR");
         }
 
@@ -70,8 +92,9 @@ public class AssignmentCommands {
 
         if (!seniorityOk) {
             String req = String.join(", ", allowedSeniorities);
-            throw new RuntimeException("Developer " + dev.getUsername() + " cannot assign ticket " + ticketId +
-                    " due to seniority level. Required: " + req + "; Current: " + s + ".");
+            throw new RuntimeException("Developer " + dev.getUsername()
+                    + " cannot assign ticket " + ticketId
+                    + " due to seniority level. Required: " + req + "; Current: " + s + ".");
         }
 
         ExpertiseArea tArea = ticket.getExpertiseArea();
@@ -106,13 +129,15 @@ public class AssignmentCommands {
 
             if (!expertiseOk) {
                 String req = String.join(", ", allowedExpertise);
-                throw new RuntimeException("Developer " + dev.getUsername() + " cannot assign ticket " + ticketId +
-                        " due to expertise area. Required: " + req + "; Current: " + dArea + ".");
+                throw new RuntimeException("Developer " + dev.getUsername()
+                        + " cannot assign ticket " + ticketId
+                        + " due to expertise area. Required: " + req + "; Current: " + dArea + ".");
             }
         }
 
-        if (ticket.getStatus() != Status.OPEN)
+        if (ticket.getStatus() != Status.OPEN) {
             throw new RuntimeException("Only OPEN tickets can be assigned.");
+        }
 
         ticket.setAssignedTo(dev.getUsername());
         ticket.setStatus(Status.IN_PROGRESS);
@@ -129,16 +154,27 @@ public class AssignmentCommands {
         CommandRunner.logHistory(ticket, "STATUS_CHANGED", date, statusData);
     }
 
-    public static void handleUndoAssignTicket(BugTrackerSystem system, User user, Map<String, Object> params) {
+    /**
+     * Un-assigns a ticket from a developer
+     *
+     * @param system The bug tracker system
+     * @param user   The user performing the undo action
+     * @param params The parameters for the undo action
+     */
+    public static void handleUndoAssignTicket(final BugTrackerSystem system, final User user,
+            final Map<String, Object> params) {
         int ticketId = (Integer) params.get("ticketID");
         Ticket ticket = system.getTicket(ticketId);
-        if (ticket == null)
+        if (ticket == null) {
             throw new RuntimeException("Ticket not found");
+        }
 
-        if (ticket.getStatus() != Status.IN_PROGRESS)
+        if (ticket.getStatus() != Status.IN_PROGRESS) {
             throw new RuntimeException("Ticket not IN_PROGRESS");
-        if (!user.getUsername().equals(ticket.getAssignedTo()))
+        }
+        if (!user.getUsername().equals(ticket.getAssignedTo())) {
             throw new RuntimeException("Not assigned to you");
+        }
 
         ticket.setAssignedTo(null);
         ticket.setAssignedAt(null);
@@ -149,18 +185,28 @@ public class AssignmentCommands {
         CommandRunner.logHistory(ticket, "DE-ASSIGNED", system.getCurrentDate(), data);
     }
 
-    // changing ticket status, also handling the side effects like unblocking
-    public static void handleChangeStatus(BugTrackerSystem system, User user, Map<String, Object> params) {
+    /**
+     * Changes the status of a ticket, handling side effects like unblocking
+     *
+     * @param system The bug tracker system
+     * @param user   The user performing the status change
+     * @param params The parameters for the status change
+     */
+    public static void handleChangeStatus(final BugTrackerSystem system, final User user,
+            final Map<String, Object> params) {
         int ticketId = (Integer) params.get("ticketID");
         Ticket ticket = system.getTicket(ticketId);
-        if (ticket == null)
+        if (ticket == null) {
             throw new RuntimeException("Ticket not found");
+        }
 
-        if (!user.getUsername().equals(ticket.getAssignedTo()))
-            throw new RuntimeException(
-                    "Ticket " + ticketId + " is not assigned to developer " + user.getUsername() + ".");
-        if (ticket.getStatus() == Status.CLOSED)
+        if (!user.getUsername().equals(ticket.getAssignedTo())) {
+            throw new RuntimeException("Ticket " + ticketId + " is not assigned to developer "
+                    + user.getUsername() + ".");
+        }
+        if (ticket.getStatus() == Status.CLOSED) {
             return;
+        }
 
         Status current = ticket.getStatus();
         // keeping track of what was blocked before this change
@@ -172,22 +218,15 @@ public class AssignmentCommands {
         }
 
         Status next = null;
-        switch (current) {
-            case OPEN:
-                next = Status.IN_PROGRESS;
-                break;
-            case IN_PROGRESS:
-                next = Status.RESOLVED;
-                break;
-            case RESOLVED:
-                next = Status.CLOSED;
-                break;
-            case CLOSED:
-                break;
+        TicketState state = StateFactory.getState(current);
+        if (state != null) {
+            next = state.nextStatus();
         }
         if (next != null) {
             ticket.setStatus(next);
-            if (next == Status.RESOLVED || next == Status.CLOSED) {
+            if (next == Status.RESOLVED) {
+                ticket.setSolvedAt(system.getCurrentDate());
+            } else if (next == Status.CLOSED && ticket.getSolvedAt() == null) {
                 ticket.setSolvedAt(system.getCurrentDate());
             }
             Map<String, String> data = new HashMap<>();
@@ -202,8 +241,10 @@ public class AssignmentCommands {
                     if (!isBlockedNow) {
                         // guarding against unblocking after due date
                         if (system.getCurrentDate().isAfter(m.getDueDate())) {
-                            CommandRunner.notifyUsers(system, m.getAssignedDevs(), "Milestone " + m.getName()
-                                    + " was unblocked after due date. All active tickets are now CRITICAL.");
+                            CommandRunner.notifyUsers(system, m.getAssignedDevs(),
+                                    "Milestone " + m.getName()
+                                            + " was unblocked after due date. "
+                                            + "All active tickets are now CRITICAL.");
 
                             for (int tId : m.getTickets()) {
                                 Ticket t = system.getTicket(tId);
@@ -212,29 +253,35 @@ public class AssignmentCommands {
 
                                     if (t.getAssignedTo() != null) {
                                         User assignedUser = system.getUser(t.getAssignedTo());
-                                        if (assignedUser instanceof Developer) {
+                                        if (assignedUser.getRole() == Role.DEVELOPER) {
                                             Developer dev = (Developer) assignedUser;
                                             if (!dev.canHandle(t)) {
                                                 String devName = t.getAssignedTo();
                                                 t.setAssignedTo(null);
                                                 t.setStatus(Status.OPEN);
 
-                                                Map<String, String> deassignData = new HashMap<>();
-                                                deassignData.put("username", devName);
-                                                deassignData.put("reason", "seniority_mismatch");
-                                                CommandRunner.logHistory(t, "DE-ASSIGNED", system.getCurrentDate(),
-                                                        deassignData);
+                                                Map<String, String> deassi = new HashMap<>();
+                                                deassi.put("username", devName);
+                                                deassi.put("reason", "seniority_mismatch");
+                                                CommandRunner.logHistory(t, "DE-ASSIGNED",
+                                                        system.getCurrentDate(),
+                                                        deassi);
 
-                                                Map<String, String> statusChangeData = new HashMap<>();
-                                                statusChangeData.put("oldStatus", "IN_PROGRESS");
-                                                statusChangeData.put("newStatus", "OPEN");
-                                                CommandRunner.logHistory(t, "STATUS_CHANGED", system.getCurrentDate(),
-                                                        statusChangeData);
+                                                Map<String, String> statusChange = new HashMap<>();
+                                                statusChange.put("oldStatus", "IN_PROGRESS");
+                                                statusChange.put("newStatus", "OPEN");
+                                                CommandRunner.logHistory(t, "STATUS_CHANGED",
+                                                        system.getCurrentDate(),
+                                                        statusChange);
                                             }
                                         }
                                     }
                                 }
                             }
+                        } else {
+                            CommandRunner.notifyUsers(system, m.getAssignedDevs(),
+                                    "Milestone " + m.getName() + " is now unblocked as tichet "
+                                            + ticketId + " has been CLOSED.");
                         }
                     }
                 }
@@ -242,18 +289,29 @@ public class AssignmentCommands {
         }
     }
 
-    public static void handleUndoChangeStatus(BugTrackerSystem system, User user, Map<String, Object> params) {
+    /**
+     * Reverts the last status change of a ticket
+     *
+     * @param system The bug tracker system
+     * @param user   The user performing the undo action
+     * @param params The parameters for the undo action
+     */
+    public static void handleUndoChangeStatus(final BugTrackerSystem system, final User user,
+            final Map<String, Object> params) {
         int ticketId = (Integer) params.get("ticketID");
         Ticket ticket = system.getTicket(ticketId);
-        if (ticket == null)
+        if (ticket == null) {
             throw new RuntimeException("Ticket not found");
+        }
 
-        if (!user.getUsername().equals(ticket.getAssignedTo()))
-            throw new RuntimeException(
-                    "Ticket " + ticketId + " is not assigned to developer " + user.getUsername() + ".");
+        if (!user.getUsername().equals(ticket.getAssignedTo())) {
+            throw new RuntimeException("Ticket " + ticketId + " is not assigned to developer "
+                    + user.getUsername() + ".");
+        }
 
-        if (ticket.getStatus() == Status.IN_PROGRESS)
+        if (ticket.getStatus() == Status.IN_PROGRESS) {
             return;
+        }
 
         Status old = ticket.getStatus();
         ticket.revertStatus();
@@ -270,27 +328,35 @@ public class AssignmentCommands {
         CommandRunner.logHistory(ticket, "STATUS_CHANGED", system.getCurrentDate(), data);
     }
 
-    public static void handleViewAssignedTickets(BugTrackerSystem system, User user, ObjectNode result) {
-        if (!(user instanceof Developer))
+    /**
+     * Views the assigned tickets for a developer
+     *
+     * @param system The bug tracker system
+     * @param user   The user viewing the tickets
+     * @param result The output object node
+     */
+    public static void handleViewAssignedTickets(final BugTrackerSystem system, final User user,
+            final ObjectNode result) {
+        if (user.getRole() != Role.DEVELOPER) {
             throw new RuntimeException("Only developers.");
-
+        }
         List<Ticket> assigned = new ArrayList<>();
         for (Ticket t : system.getAllTickets()) {
             if (user.getUsername().equals(t.getAssignedTo())) {
                 assigned.add(t);
             }
         }
-
         assigned.sort((t1, t2) -> {
             int p = t2.getPriority().compareTo(t1.getPriority());
-            if (p != 0)
+            if (p != 0) {
                 return p;
+            }
             int c = t1.getCreatedAt().compareTo(t2.getCreatedAt());
-            if (c != 0)
+            if (c != 0) {
                 return c;
+            }
             return Integer.compare(t1.getId(), t2.getId());
         });
-
         ArrayNode arr = result.putArray("assignedTickets");
         for (Ticket t : assigned) {
             ObjectNode n = arr.addObject();
@@ -299,10 +365,17 @@ public class AssignmentCommands {
             n.put("title", t.getTitle());
             n.put("businessPriority", t.getPriority().toString());
             n.put("status", t.getStatus().toString());
-            n.put("assignedAt", t.getAssignedAt() != null ? t.getAssignedAt().toString() : "");
-            n.put("createdAt", t.getCreatedAt() != null ? t.getCreatedAt().toString() : "");
+            if (t.getAssignedAt() != null) {
+                n.put("assignedAt", t.getAssignedAt().toString());
+            } else {
+                n.put("assignedAt", "");
+            }
+            if (t.getCreatedAt() != null) {
+                n.put("createdAt", t.getCreatedAt().toString());
+            } else {
+                n.put("createdAt", "");
+            }
             n.put("reportedBy", t.getReportedBy());
-
             ArrayNode commentsNode = n.putArray("comments");
             for (Map<String, String> comment : t.getComments()) {
                 ObjectNode cNode = commentsNode.addObject();
